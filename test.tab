@@ -1,0 +1,1 @@
+unsafe { promise x in 500..1000 }
