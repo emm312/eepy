@@ -1,0 +1,29 @@
+fn main(): i8 {
+    let var: u8 ~ 0.. = 3; // var is from 0 to infty
+    let x: u8 ~ self > 3 = 2; // x is always less than 3
+    if x == 5 {
+        println("x is 5");
+    }
+}
+
+fn fib(n: u64 ~ 1..): u64 ~ 1.. {
+    if n < 2 {
+        ret n;
+    }
+    ret fib(n-1) + fib(n-2);
+}
+
+struct Complex<T: Number> {
+    real: T,
+    imag: T
+}
+
+fns Complex<T> for Operators {
+    fn add(&self, rhs: &Complex): Complex {
+        ret Complex {
+            real: self.real + rhs.real,
+            imag: self.imag + rhs.imag
+        };
+    }
+    ...
+}
