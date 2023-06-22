@@ -1,1 +1,7 @@
-unsafe { promise x in 500..1000 }
+fn main(): i8 {
+    let var: u8 ~ 0.. = 3; // var is from 0 to infty
+    let x: u8 ~ ..3 = 2; // x is always less than 3
+    if x == 5 {
+        println("x is 5");
+    }
+}
