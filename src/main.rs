@@ -2,8 +2,20 @@ use std::{collections::HashMap, fs::read_to_string};
 
 use clap::Parser as ClapParser;
 
-use taube::{PrettyPrint, frontend::{lexer::{lex, self}, SymbolMap, errors::UnwrapError}, frontend::parser::parse, envs::{DUMP_TOKENS, env_flag, DUMP_AST},
-    ir::{IRBasicBlock, IRExpr, IRFunction, IRLinkage, IRInstr, IRModule, IRTerminator, IRType, IRValue}, backend::codegen::Codegen,
+use taube::{
+    backend::codegen::Codegen,
+    envs::{env_flag, DUMP_AST, DUMP_TOKENS},
+    frontend::parser::parse,
+    frontend::{
+        errors::UnwrapError,
+        lexer::{self, lex},
+        SymbolMap,
+    },
+    ir::{
+        IRBasicBlock, IRExpr, IRFunction, IRInstr, IRLinkage, IRModule, IRTerminator, IRType,
+        IRValue,
+    },
+    PrettyPrint,
 };
 
 #[derive(ClapParser)]
@@ -18,7 +30,6 @@ struct Args {
     jit: bool,
 }
 
-
 fn main() {
     let args = Args::parse();
     let code = read_to_string(&args.input_file)
@@ -30,10 +41,12 @@ fn main() {
     let file = symbol_map.push(args.input_file);
 
     let tokens = lex(file, &code, &mut symbol_map);
-    let tokens = tokens.unwrap_as_error(|| HashMap::from([(file, (symbol_map[file].clone(), code.clone()))]));
-    
-    if env_flag(DUMP_TOKENS) { println!("{}", (&*tokens).pretty_print(&symbol_map)); };
+    let tokens = tokens
+        .unwrap_as_error(|| HashMap::from([(file, (symbol_map[file].clone(), code.clone()))]));
 
+    if env_flag(DUMP_TOKENS) {
+        println!("{}", (&*tokens).pretty_print(&symbol_map));
+    };
 
     let putchar_fn = IRFunction {
         name: String::from("putchar"),
@@ -42,8 +55,11 @@ fn main() {
         blocks: None,
         linkage: IRLinkage::External,
     };
-    let ast = parse(file, &tokens, &mut symbol_map).unwrap_as_error(|| HashMap::from([(file, (symbol_map[file].clone(), code.clone()))]));
-    if env_flag(DUMP_AST) { println!("{:#?}", ast); };
+    let ast = parse(file, &tokens, &mut symbol_map)
+        .unwrap_as_error(|| HashMap::from([(file, (symbol_map[file].clone(), code.clone()))]));
+    if env_flag(DUMP_AST) {
+        println!("{:#?}", ast);
+    };
 
     let zero = IRExpr::Value(IRValue::I8(0));
     let main_fn = IRFunction {
