@@ -53,6 +53,7 @@ pub struct Error {
 impl Error {
     pub fn new(body: Vec<ErrorOption>) -> Self { Self { body } }
 
+
     pub fn build(self, files: &HashMap<SymbolIndex, (String, String)>) -> String {
         self.body.into_iter().map(|x| x.build(files)).collect()
     }
@@ -161,7 +162,7 @@ impl ErrorOption {
                 let (file_name, source) = files.get(&file).unwrap();
 
                 let start_line = line_at_index(source, range.start).unwrap().1;
-                let end_line   = line_at_index(source, range.end - 1).unwrap().1;
+                let end_line   = line_at_index(source, range.end).unwrap().1;
                 let line_size  = end_line.to_string().len();
 
                 
@@ -300,12 +301,12 @@ impl<T: ErrorBuilder> ErrorBuilder for Text<T> {
 }
 
 
-pub struct CompilerError<'a>(usize, &'a str, SymbolIndex);
+pub struct CompilerError<'a>(&'a str, SymbolIndex);
 
 
 impl CompilerError<'_> {
-    pub fn new(file: SymbolIndex, id: usize, text: &str) -> CompilerError {
-        CompilerError(id, text, file)
+    pub fn new(file: SymbolIndex, text: &str) -> CompilerError {
+        CompilerError(text, file)
     }
 }
 
@@ -314,17 +315,37 @@ impl ErrorBuilder for CompilerError<'_> {
     fn flatten(self, vec: &mut Vec<ErrorOption>) {
         let mut string = String::new();
 
-        let _ = write!(string, "error[{:>03}]", self.0);
+        let _ = write!(string, "error");
 
         string = string.red().bold().to_string();
                 
-        let _ = writeln!(string, " {}", self.1.white().bold());
+        let _ = writeln!(string, " {}", self.0.white().bold());
         
         vec.push(ErrorOption::Text(string))
     }
 
     
     fn file(&self) -> SymbolIndex {
-        self.2
+        self.1
+    }
+}
+
+
+pub trait UnwrapError<T> {
+    fn unwrap_as_error(self, map: impl Fn() -> HashMap<SymbolIndex, (String, String)>) -> T;
+}
+
+
+impl<T> UnwrapError<T> for Result<T, Error> {
+    fn unwrap_as_error(self, map: impl Fn() -> HashMap<SymbolIndex, (String, String)>) -> T {
+        match self {
+            Ok(v) => v,
+            Err(e) => {
+                let map = map();
+                let string = e.build(&map);
+                eprintln!("{string}");
+                std::process::exit(1);
+            },
+        }
     }
 }

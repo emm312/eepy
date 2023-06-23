@@ -2,7 +2,7 @@ use std::{str::Chars, fmt::Write};
 
 use crate::PrettyPrint;
 
-use super::{SymbolIndex, errors::{CompilerError, Error, ErrorBuilder, CombineIntoError}, SourceRange, SymbolMap};
+use super::{SymbolIndex, errors::{CompilerError, Error, ErrorBuilder, CombineIntoError}, SourceRange, SymbolMap, Literal};
 
 #[derive(Debug, PartialEq)]
 pub struct Token {
@@ -53,17 +53,16 @@ pub enum TokenKind {
     NotEqualsTo,
     LogicalOr,
     LogicalAnd,
+
+    BitwiseOR,
+    BitwiseAND,
+    BitwiseXOR,
+
+    LeftShift,
+    RightShift,
+    RightShiftZero,
     
     EndOfFile,
-}
-
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Literal {
-    Integer(i64),
-    Float(f64),
-    String(SymbolIndex),
-    Bool(bool),
 }
 
 
@@ -116,10 +115,10 @@ struct Lexer<'a> {
 ///   stripped out
 ///
 /// # Arguments:
-///   - `data`: The file source code
 ///   - `file`:
 ///     - The file name (without extension) the errors will be created with
 ///     - This can be obtained by using the `SymbolTable::add` method
+///   - `data`: The file source code
 ///   - `symbol_table`:
 ///     - **MUTABILITY**: Appends newly encountered strings and identifier
 ///     - Check the `SymbolTable` docs to see how to create it
@@ -129,8 +128,8 @@ struct Lexer<'a> {
 ///     the lexing errors that occurred while lexing.
 ///
 pub fn lex(
-    data: &str,
     file: SymbolIndex,
+    data: &str,
     symbol_table: &mut SymbolMap
 ) -> Result<Vec<Token>, Error> {
     
@@ -193,16 +192,30 @@ pub fn lex(
 
             '(' => TokenKind::LeftParenthesis,
             ')' => TokenKind::RightParenthesis,
-            '<' => lexer.next_matches('=', TokenKind::LesserEquals, TokenKind::LeftAngle),
-            '>' => lexer.next_matches('=', TokenKind::GreaterEquals, TokenKind::RightAngle),
-            '&' if lexer.peek() == Some('&') => {
-                lexer.advance();
-                TokenKind::LogicalAnd
+            '<' => {
+                match lexer.peek() {
+                    Some('<') => { lexer.advance(); TokenKind::LeftShift },
+                    Some('=') => { lexer.advance(); TokenKind::LesserEquals },
+                    _ => TokenKind::LeftAngle
+                }
             },
-            '|' if lexer.peek() == Some('|') => {
-                lexer.advance();
-                TokenKind::LogicalOr
+
+            '>' => {
+                match lexer.peek() {
+                    Some('=') => { lexer.advance(); TokenKind::GreaterEquals },
+                    Some('>') => {
+                        lexer.advance();
+                        match lexer.peek() {
+                            Some('>') => { lexer.advance(); TokenKind::RightShiftZero },
+                            _ => TokenKind::RightShift,
+                        }
+                    }
+                    _ => TokenKind::RightAngle,
+                }
             },
+
+            '&' => lexer.next_matches('&', TokenKind::LogicalAnd, TokenKind::BitwiseAND),
+            '|' => lexer.next_matches('&', TokenKind::LogicalOr, TokenKind::BitwiseOR),
             '{' => TokenKind::LeftBracket,
             '}' => TokenKind::RightBracket,
             '[' => TokenKind::LeftSquare,
@@ -236,7 +249,7 @@ pub fn lex(
             
             
             _ => {
-                errors.push(CompilerError::new(lexer.file, 1, "invalid character")
+                errors.push(CompilerError::new(lexer.file, "invalid character")
                     .highlight(SourceRange::new(start, start))
                         .note(format!("{value:?}"))
                     .build());
@@ -418,7 +431,7 @@ impl Lexer<'_> {
         }
 
         if self.current_character() != Some('"') {
-            errors.push(CompilerError::new(self.file, 2, "unterminated string")
+            errors.push(CompilerError::new(self.file, "unterminated string")
                 .highlight(SourceRange::new(start, self.character_index))
                     .note("consider adding a quotation mark here".to_string())
 
@@ -438,7 +451,7 @@ impl Lexer<'_> {
     fn unicode_escape_character(&mut self) -> Result<char, Error> {
         if self.advance() != Some('{') {
             self.stale = true;
-            return Err(CompilerError::new(self.file, 3, "corrupt unicode escape")
+            return Err(CompilerError::new(self.file, "corrupt unicode escape")
                 .highlight(SourceRange::new(self.character_index, self.character_index))
                     .note("unicode escapes are formatted like \\u{..}".to_string())
 
@@ -457,7 +470,7 @@ impl Lexer<'_> {
                 '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'A' | 'B' | 'C'
                 | 'D' | 'E' | 'F' => unicode.push(value),
 
-                _ => return Err(CompilerError::new(self.file, 4, "invalid unicode value")
+                _ => return Err(CompilerError::new(self.file, "invalid unicode value")
                     .highlight(SourceRange::new(self.character_index, self.character_index))
                         .note("unicode escape values must be written in base-16 (0-1-2-3-4-5-6-7-8-9-A-B-C-D-E-F)".to_string())
                     
@@ -472,7 +485,7 @@ impl Lexer<'_> {
 
         match char::from_u32(number as u32) {
             Some(value) => Ok(value),
-            None => Err(CompilerError::new(self.file, 7, "isn't a valid unicode character")
+            None => Err(CompilerError::new(self.file, "isn't a valid unicode character")
                     .highlight(SourceRange::new(start, self.character_index))
                     .build()
                 ),
@@ -521,7 +534,7 @@ impl Lexer<'_> {
         while let Some(value) = self.current_character() {
             match map_to_hex(value) {
                 Some(n) if base < n as u32 + 1 => 
-                    return Err(CompilerError::new(self.file, 6, "invalid number for base")
+                    return Err(CompilerError::new(self.file, "invalid number for base")
                         .highlight(SourceRange::new(self.character_index, self.character_index))
                             .note(format!("the value {value} is too big for a base-{base} number"))
 
@@ -545,7 +558,7 @@ impl Lexer<'_> {
         if dot_count > 1 {
             self.return_string_storage(number_string);
 
-            return Err(CompilerError::new(self.file, 8, "too many dots")
+            return Err(CompilerError::new(self.file, "too many dots")
                 .highlight(SourceRange::new(start, self.character_index-1))
                 .build()
             );
@@ -588,7 +601,7 @@ impl Lexer<'_> {
 
             let power = match (base as i64).checked_pow(power) {
                 Some(value) => value,
-                None => return Err(CompilerError::new(self.file, 5, "number is too large")
+                None => return Err(CompilerError::new(self.file, "number is too large")
                     .highlight(SourceRange::new(start, self.character_index-1))
                     .build()
                 ),
@@ -596,14 +609,14 @@ impl Lexer<'_> {
 
             let result : i64 = match power.checked_mul(digit) {
                 Some(value) => value,
-                None => return Err(CompilerError::new(self.file, 5, "number is too large")
+                None => return Err(CompilerError::new(self.file, "number is too large")
                     .highlight(SourceRange::new(start, self.character_index-1))
                     .build()),
             };
 
             number = match number.checked_add(result) {
                 Some(value) => value,
-                None => return Err(CompilerError::new(self.file, 5, "number is too large")
+                None => return Err(CompilerError::new(self.file, "number is too large")
                     .highlight(SourceRange::new(start, self.character_index-1))
                     .build()),
             };
@@ -667,6 +680,15 @@ impl Token {
 
 
 impl TokenKind {
+    pub fn to_str(&self, symbol_map: &SymbolMap) -> String {
+        let mut string = String::new();
+
+        self.pretty_print(&mut string, symbol_map);
+
+        string
+    }
+
+    
     fn pretty_print(&self, handle: &mut impl Write, symbol_map: &SymbolMap) {
         let _ = write!(handle, "{}", match self {
             TokenKind::LeftParenthesis => "(",
@@ -701,6 +723,13 @@ impl TokenKind {
             TokenKind::Semicolon => ";",
             TokenKind::Ampersand => "&",
             TokenKind::SquigglyDash => "~",
+            TokenKind::BitwiseOR => "|",
+            TokenKind::BitwiseAND => "&",
+            TokenKind::BitwiseXOR => "^",
+
+            TokenKind::LeftShift => "<<",
+            TokenKind::RightShift => ">>",
+            TokenKind::RightShiftZero => ">>>",
             
             TokenKind::Literal(v) => return v.pretty_print(handle, symbol_map),
             TokenKind::Keyword(v) => return v.pretty_print(handle),
@@ -709,22 +738,6 @@ impl TokenKind {
                 return
             },
         });
-    }
-}
-
-
-impl Literal {
-    fn pretty_print(&self, handle: &mut impl Write, symbol_map: &SymbolMap) {
-        let _ = write!(handle, "lit(");
-
-        let _ = match self {
-            Literal::Integer(v) => write!(handle, "{}", v),
-            Literal::Float  (v) => write!(handle, "{}", v),
-            Literal::String (v) => write!(handle, "{}", &symbol_map[*v]),
-            Literal::Bool   (v) => write!(handle, "{}", v),
-        };
-        
-        let _ = write!(handle, ")");
     }
 }
 
