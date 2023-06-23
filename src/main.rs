@@ -64,7 +64,7 @@ fn main() {
     let zero = IRExpr::Value(IRValue::I8(0));
     let main_fn = IRFunction {
         name: String::from("main"),
-        return_type: IRType::I8,
+        return_type: IRType::ZeroSized,
         args: vec![],
         blocks: Some(vec![IRBasicBlock {
             name: String::from("entry"),

@@ -6,11 +6,14 @@ use inkwell::{
     module::Module,
     targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine},
     types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
-    values::{FunctionValue, PointerValue},
+    values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue},
     AddressSpace, OptimizationLevel,
 };
 
-use crate::ir::{IRFunction, IRModule, IRType};
+use crate::{
+    envs::{env_flag, DUMP_LLVM_IR},
+    ir::{IRBasicBlock, IRExpr, IRFunction, IRModule, IRType, IRValue, IRInstr, IRTerminator},
+};
 
 pub struct Codegen<'ctx> {
     module: Module<'ctx>,
@@ -48,7 +51,9 @@ impl<'ctx> Codegen<'ctx> {
         };
 
         codegen.compile_ast(ir_module);
-        codegen.module.print_to_stderr();
+        if env_flag(DUMP_LLVM_IR) {
+            codegen.module.print_to_stderr();
+        }
 
         if jit {
             let main;
@@ -66,11 +71,114 @@ impl<'ctx> Codegen<'ctx> {
 
     fn compile_ast(&mut self, ast: IRModule) {
         for function in ast.functions {
-            let func = self.add_function(function);
+            self.add_function(&function);
+            if let Some(blocks) = function.blocks {
+                for block in blocks {
+                    self.compile_block(block);
+                }
+            }
         }
     }
 
-    fn add_function(&mut self, func: IRFunction) -> FunctionValue {
+    fn compile_block(&mut self, ir_block: IRBasicBlock) {
+        let block = self
+            .ctx
+            .append_basic_block(self.cur_fn.expect("no fn selected"), &ir_block.name);
+
+        self.builder.position_at_end(block);
+
+        for instr in ir_block.instrs {
+            match instr {
+                IRInstr::Expr(e) => { self.compile_expr(e); },
+                _ => todo!(),
+            }
+        }
+
+        match ir_block.terminator {
+            IRTerminator::Ret(expr) => {
+                let val = self.compile_expr(expr);
+                self.builder.build_return(Some(&val));
+            }
+            _ => todo!()
+        }
+    }
+
+    fn compile_expr(&self, expr: IRExpr) -> BasicValueEnum {
+        match expr {
+            IRExpr::Value(n) => self.compile_value(n),
+            IRExpr::FnCall(name, args) => {
+                let func = self
+                    .module
+                    .get_function(&name)
+                    .expect("fn call to a fn that doesnt exist");
+
+                let mut arg_vals = Vec::new();
+
+                for arg in args {
+                    arg_vals.push(self.compile_expr(arg));
+                }
+
+                let arg_enum = arg_vals
+                    .into_iter()
+                    .map(|e| e.into())
+                    .collect::<Vec<BasicMetadataValueEnum>>();
+
+                self.builder
+                    .build_call(func, &arg_enum, "fn_call")
+                    .try_as_basic_value()
+                    .unwrap_left()
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn compile_value(&self, val: IRValue) -> BasicValueEnum {
+        match val {
+            IRValue::I8(val) => self
+                .ctx
+                .i8_type()
+                .const_int(val as u64, true)
+                .as_basic_value_enum(),
+            IRValue::I16(val) => self
+                .ctx
+                .i16_type()
+                .const_int(val as u64, true)
+                .as_basic_value_enum(),
+            IRValue::I32(val) => self
+                .ctx
+                .i32_type()
+                .const_int(val as u64, true)
+                .as_basic_value_enum(),
+            IRValue::I64(val) => self
+                .ctx
+                .i64_type()
+                .const_int(val as u64, true)
+                .as_basic_value_enum(),
+            IRValue::U8(val) => self
+                .ctx
+                .i8_type()
+                .const_int(val as u64, false)
+                .as_basic_value_enum(),
+            IRValue::U16(val) => self
+                .ctx
+                .i8_type()
+                .const_int(val as u64, false)
+                .as_basic_value_enum(),
+            IRValue::U32(val) => self
+                .ctx
+                .i8_type()
+                .const_int(val as u64, false)
+                .as_basic_value_enum(),
+            IRValue::U64(val) => self
+                .ctx
+                .i8_type()
+                .const_int(val as u64, false)
+                .as_basic_value_enum(),
+            _ => todo!(),
+        }
+    }
+
+    fn add_function(&mut self, func: &IRFunction) -> FunctionValue {
         let args = func
             .args
             .iter()
