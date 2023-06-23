@@ -10,8 +10,7 @@ afl = []
 [dependencies]
 # ariadne = "0.3.0"
 clap = { version = "4.3.4", features = ["derive"] }
-# logos = "0.13.0"
-# inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm16-0"] }
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm16-0"] }
 
 colored = "*"
 istd = { git = "https://github.com/rookieCookies/istd" }

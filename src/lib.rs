@@ -1,6 +1,6 @@
 use frontend::SymbolMap;
 
-// pub mod backend;
+pub mod backend;
 pub mod ir;
 pub mod semantic_anal;
 pub mod envs;
