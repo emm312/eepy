@@ -12,7 +12,7 @@ use inkwell::{
 
 use crate::{
     envs::{env_flag, DUMP_LLVM_IR},
-    ir::{IRBasicBlock, IRExpr, IRFunction, IRModule, IRType, IRValue, IRInstr, IRTerminator},
+    ir::{IRBasicBlock, IRExpr, IRFunction, IRInstr, IRModule, IRTerminator, IRType, IRValue},
 };
 
 pub struct Codegen<'ctx> {
@@ -89,7 +89,9 @@ impl<'ctx> Codegen<'ctx> {
 
         for instr in ir_block.instrs {
             match instr {
-                IRInstr::Expr(e) => { self.compile_expr(e); },
+                IRInstr::Expr(e) => {
+                    self.compile_expr(e);
+                }
                 _ => todo!(),
             }
         }
@@ -99,7 +101,7 @@ impl<'ctx> Codegen<'ctx> {
                 let val = self.compile_expr(expr);
                 self.builder.build_return(Some(&val));
             }
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
