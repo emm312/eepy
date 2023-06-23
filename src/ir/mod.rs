@@ -1,3 +1,5 @@
+use inkwell::module::Linkage;
+
 #[derive(Debug, Clone)]
 pub enum IRType {
     I8,
@@ -28,6 +30,16 @@ pub enum IRLinkage {
     Public,
     Private,
     External,
+}
+
+impl IRLinkage {
+    pub fn to_llvm(&self) -> Option<Linkage> {
+        match self {
+            IRLinkage::External => Some(Linkage::External),
+            IRLinkage::Public => None,
+            IRLinkage::Private => Some(Linkage::Private),
+        }
+    }
 }
 
 pub struct IRBasicBlock {
@@ -102,6 +114,10 @@ pub enum IRExpr {
     Mod(Box<IRExpr>, Box<IRExpr>),
     Div(Box<IRExpr>, Box<IRExpr>),
     Mul(Box<IRExpr>, Box<IRExpr>),
+    And(Box<IRExpr>, Box<IRExpr>),
+    Or(Box<IRExpr>, Box<IRExpr>),
+    Xor(Box<IRExpr>, Box<IRExpr>),
+    Not(Box<IRExpr>),
     FnCall(String, Vec<IRExpr>),
 }
 

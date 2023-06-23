@@ -1,15 +1,17 @@
-use std::{str::Chars, fmt::Write};
+use std::{fmt::Write, str::Chars};
 
 use crate::PrettyPrint;
 
-use super::{SymbolIndex, errors::{CompilerError, Error, ErrorBuilder, CombineIntoError}, SourceRange, SymbolMap};
+use super::{
+    errors::{CombineIntoError, CompilerError, Error, ErrorBuilder},
+    SourceRange, SymbolIndex, SymbolMap,
+};
 
 #[derive(Debug, PartialEq)]
 pub struct Token {
     pub token_kind: TokenKind,
     pub source_range: SourceRange,
 }
-
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenKind {
@@ -53,10 +55,9 @@ pub enum TokenKind {
     NotEqualsTo,
     LogicalOr,
     LogicalAnd,
-    
+
     EndOfFile,
 }
-
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Literal {
@@ -65,7 +66,6 @@ pub enum Literal {
     String(SymbolIndex),
     Bool(bool),
 }
-
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Keyword {
@@ -91,7 +91,6 @@ pub enum Keyword {
     Using,
 }
 
-
 #[derive(Debug)]
 struct Lexer<'a> {
     characters: Chars<'a>,
@@ -106,11 +105,10 @@ struct Lexer<'a> {
     file: SymbolIndex,
 }
 
-
 ///
 /// Lexer
 ///
-/// # Panics: 
+/// # Panics:
 ///   If `data` includes any `\t` or `\r` characters this function will panic  
 ///   `\t` should be converted to spaces while any mention of `\r` should be
 ///   stripped out
@@ -131,9 +129,8 @@ struct Lexer<'a> {
 pub fn lex(
     data: &str,
     file: SymbolIndex,
-    symbol_table: &mut SymbolMap
+    symbol_table: &mut SymbolMap,
 ) -> Result<Vec<Token>, Error> {
-    
     let mut lexer = Lexer {
         characters: data.chars(),
         index: 0,
@@ -160,11 +157,9 @@ pub fn lex(
                     Err(error) => {
                         errors.push(error);
                         continue;
-
-                    },
+                    }
                 }
             }
-
 
             '\n' | ' ' => continue,
 
@@ -198,11 +193,11 @@ pub fn lex(
             '&' if lexer.peek() == Some('&') => {
                 lexer.advance();
                 TokenKind::LogicalAnd
-            },
+            }
             '|' if lexer.peek() == Some('|') => {
                 lexer.advance();
                 TokenKind::LogicalOr
-            },
+            }
             '{' => TokenKind::LeftBracket,
             '}' => TokenKind::RightBracket,
             '[' => TokenKind::LeftSquare,
@@ -221,25 +216,24 @@ pub fn lex(
             '&' => TokenKind::Ampersand,
             '~' => TokenKind::SquigglyDash,
 
-            
             '_' => {
                 if let Some('a'..='z' | 'A'..='Z' | '_' | '0'..='9') = lexer.peek() {
                     lexer.identifier()
                 } else {
                     TokenKind::Underscore
                 }
-            },
-
+            }
 
             '\t' => panic!("compiler error! tab character wasn't converted"),
             '\r' => panic!("compiler error! carriage return character wasn't converted"),
-            
-            
+
             _ => {
-                errors.push(CompilerError::new(lexer.file, 1, "invalid character")
-                    .highlight(SourceRange::new(start, start))
+                errors.push(
+                    CompilerError::new(lexer.file, 1, "invalid character")
+                        .highlight(SourceRange::new(start, start))
                         .note(format!("{value:?}"))
-                    .build());
+                        .build(),
+                );
                 continue;
             }
         };
@@ -258,10 +252,7 @@ pub fn lex(
 
     tokens.push(Token {
         token_kind: TokenKind::EndOfFile,
-        source_range: SourceRange {
-            start: end,
-            end,
-        },
+        source_range: SourceRange { start: end, end },
     });
 
     if errors.is_empty() {
@@ -271,7 +262,6 @@ pub fn lex(
     }
 }
 
-
 // utility methods
 impl Lexer<'_> {
     pub(crate) fn advance(&mut self) -> Option<char> {
@@ -279,27 +269,24 @@ impl Lexer<'_> {
             self.stale = false;
             return self.current;
         }
-        
+
         self.index += 1;
 
         if let Some(v) = self.current {
             self.character_index += v.len_utf8();
         }
-        
+
         self.current = self.characters.next();
         self.current
     }
-
 
     fn current_character(&self) -> Option<char> {
         self.current
     }
 
-
     pub(crate) fn peek(&mut self) -> Option<char> {
         self.characters.clone().next()
     }
-
 
     // # Safety:
     //   - It is the responsibility of the caller to
@@ -311,16 +298,14 @@ impl Lexer<'_> {
         std::mem::take(&mut self.string_storage)
     }
 
-
     fn return_string_storage(&mut self, string: String) {
         self.string_storage = string;
     }
 
-    
     fn next_matches(&mut self, matches: char, yes: TokenKind, no: TokenKind) -> TokenKind {
         if self.peek() == Some(matches) {
             self.advance();
-            return yes
+            return yes;
         }
         no
     }
@@ -367,9 +352,9 @@ impl Lexer<'_> {
 
             _ => {
                 let index = self.symbol_table.push(String::from(&string));
-                
+
                 TokenKind::Identifier(index)
-            },
+            }
         };
 
         self.return_string_storage(string);
@@ -377,7 +362,6 @@ impl Lexer<'_> {
         token
     }
 
-    
     fn string(&mut self) -> Result<Literal, Vec<Error>> {
         let mut string = String::new();
         let start = self.character_index;
@@ -399,7 +383,7 @@ impl Lexer<'_> {
                         Ok(val) => string.push(val),
                         Err(err) => {
                             errors.push(err);
-                        },
+                        }
                     },
 
                     _ => string.push(value),
@@ -418,11 +402,11 @@ impl Lexer<'_> {
         }
 
         if self.current_character() != Some('"') {
-            errors.push(CompilerError::new(self.file, 2, "unterminated string")
-                .highlight(SourceRange::new(start, self.character_index))
+            errors.push(
+                CompilerError::new(self.file, 2, "unterminated string")
+                    .highlight(SourceRange::new(start, self.character_index))
                     .note("consider adding a quotation mark here".to_string())
-
-                .build()
+                    .build(),
             );
         }
 
@@ -434,20 +418,17 @@ impl Lexer<'_> {
         Err(errors)
     }
 
-
     fn unicode_escape_character(&mut self) -> Result<char, Error> {
         if self.advance() != Some('{') {
             self.stale = true;
             return Err(CompilerError::new(self.file, 3, "corrupt unicode escape")
                 .highlight(SourceRange::new(self.character_index, self.character_index))
-                    .note("unicode escapes are formatted like \\u{..}".to_string())
-
-                .build()
-            );
+                .note("unicode escapes are formatted like \\u{..}".to_string())
+                .build());
         }
 
         let start = self.character_index;
-        
+
         let mut unicode = self.borrow_string_storage();
 
         while let Some(value) = self.advance() {
@@ -460,7 +441,7 @@ impl Lexer<'_> {
                 _ => return Err(CompilerError::new(self.file, 4, "invalid unicode value")
                     .highlight(SourceRange::new(self.character_index, self.character_index))
                         .note("unicode escape values must be written in base-16 (0-1-2-3-4-5-6-7-8-9-A-B-C-D-E-F)".to_string())
-                    
+
                     .build()
                 ),
             }
@@ -472,13 +453,13 @@ impl Lexer<'_> {
 
         match char::from_u32(number as u32) {
             Some(value) => Ok(value),
-            None => Err(CompilerError::new(self.file, 7, "isn't a valid unicode character")
+            None => Err(
+                CompilerError::new(self.file, 7, "isn't a valid unicode character")
                     .highlight(SourceRange::new(start, self.character_index))
-                    .build()
-                ),
+                    .build(),
+            ),
         }
     }
-
 
     fn number(&mut self) -> Result<Literal, Error> {
         if self.current_character() == Some('0') {
@@ -508,7 +489,6 @@ impl Lexer<'_> {
         }
     }
 
-
     fn base_n_number(&mut self, base: u32) -> Result<Literal, Error> {
         if base > 16 {
             panic!("invalid base number provided by the compiler")
@@ -520,12 +500,14 @@ impl Lexer<'_> {
 
         while let Some(value) = self.current_character() {
             match map_to_hex(value) {
-                Some(n) if base < n as u32 + 1 => 
+                Some(n) if base < n as u32 + 1 => {
                     return Err(CompilerError::new(self.file, 6, "invalid number for base")
                         .highlight(SourceRange::new(self.character_index, self.character_index))
-                            .note(format!("the value {value} is too big for a base-{base} number"))
-
-                        .build()),
+                        .note(format!(
+                            "the value {value} is too big for a base-{base} number"
+                        ))
+                        .build())
+                }
 
                 Some(_) => (),
                 _ => match value {
@@ -535,7 +517,7 @@ impl Lexer<'_> {
                         continue;
                     }
                     _ => break,
-                }
+                },
             }
 
             number_string.push(value);
@@ -546,9 +528,8 @@ impl Lexer<'_> {
             self.return_string_storage(number_string);
 
             return Err(CompilerError::new(self.file, 8, "too many dots")
-                .highlight(SourceRange::new(start, self.character_index-1))
-                .build()
-            );
+                .highlight(SourceRange::new(start, self.character_index - 1))
+                .build());
         }
 
         let (full_number, decimals) = number_string
@@ -575,46 +556,46 @@ impl Lexer<'_> {
     }
 }
 
-
 impl Lexer<'_> {
     fn base_n_number_conversion(&self, base: u32, text: &str) -> Result<i64, Error> {
-        let mut number : i64 = 0;
+        let mut number: i64 = 0;
         let start = self.index - text.len() - 1;
 
-        
         for (index, value) in text.chars().rev().enumerate() {
             let digit = value.to_digit(base).expect("unreachable") as i64;
             let power = index as u32;
 
             let power = match (base as i64).checked_pow(power) {
                 Some(value) => value,
-                None => return Err(CompilerError::new(self.file, 5, "number is too large")
-                    .highlight(SourceRange::new(start, self.character_index-1))
-                    .build()
-                ),
+                None => {
+                    return Err(CompilerError::new(self.file, 5, "number is too large")
+                        .highlight(SourceRange::new(start, self.character_index - 1))
+                        .build())
+                }
             };
 
-            let result : i64 = match power.checked_mul(digit) {
+            let result: i64 = match power.checked_mul(digit) {
                 Some(value) => value,
-                None => return Err(CompilerError::new(self.file, 5, "number is too large")
-                    .highlight(SourceRange::new(start, self.character_index-1))
-                    .build()),
+                None => {
+                    return Err(CompilerError::new(self.file, 5, "number is too large")
+                        .highlight(SourceRange::new(start, self.character_index - 1))
+                        .build())
+                }
             };
 
             number = match number.checked_add(result) {
                 Some(value) => value,
-                None => return Err(CompilerError::new(self.file, 5, "number is too large")
-                    .highlight(SourceRange::new(start, self.character_index-1))
-                    .build()),
+                None => {
+                    return Err(CompilerError::new(self.file, 5, "number is too large")
+                        .highlight(SourceRange::new(start, self.character_index - 1))
+                        .build())
+                }
             };
         }
 
         Ok(number)
     }
-
-    
 }
-
 
 fn map_to_hex(character: char) -> Option<u8> {
     match character {
@@ -634,10 +615,9 @@ fn map_to_hex(character: char) -> Option<u8> {
         'D' => Some(13),
         'E' => Some(14),
         'F' => Some(15),
-        _ => None
-    }       
+        _ => None,
+    }
 }
-
 
 impl PrettyPrint for &[Token] {
     fn pretty_print(&self, symbol_map: &SymbolMap) -> String {
@@ -650,10 +630,7 @@ impl PrettyPrint for &[Token] {
 
         string
     }
-
-    
 }
-
 
 impl Token {
     fn pretty_print(&self, handle: &mut impl Write, symbol_map: &SymbolMap) {
@@ -665,53 +642,55 @@ impl Token {
     }
 }
 
-
 impl TokenKind {
     fn pretty_print(&self, handle: &mut impl Write, symbol_map: &SymbolMap) {
-        let _ = write!(handle, "{}", match self {
-            TokenKind::LeftParenthesis => "(",
-            TokenKind::RightParenthesis => ")",
-            TokenKind::LeftAngle => "<",
-            TokenKind::RightAngle => ">",
-            TokenKind::LeftBracket => "{",
-            TokenKind::RightBracket => "}",
-            TokenKind::LeftSquare => "[",
-            TokenKind::RightSquare => "]",
-            TokenKind::Percent => "%",
-            TokenKind::Slash => "/",
-            TokenKind::Plus => "+",
-            TokenKind::Minus => "-",
-            TokenKind::Star => "*",
-            TokenKind::Caret => "^",
-            TokenKind::Colon => ":",
-            TokenKind::DoubleColon => "::",
-            TokenKind::Comma => ",",
-            TokenKind::Dot => ".",
-            TokenKind::DoubleDot => "..",
-            TokenKind::Bang => "!",
-            TokenKind::Equals => "=",
-            TokenKind::Underscore => "_",
-            TokenKind::LesserEquals => "<=",
-            TokenKind::GreaterEquals => ">=",
-            TokenKind::EqualsTo => "==",
-            TokenKind::NotEqualsTo => "!=",
-            TokenKind::LogicalOr => "||",
-            TokenKind::LogicalAnd => "&&",
-            TokenKind::EndOfFile => "eof",
-            TokenKind::Semicolon => ";",
-            TokenKind::Ampersand => "&",
-            TokenKind::SquigglyDash => "~",
-            
-            TokenKind::Literal(v) => return v.pretty_print(handle, symbol_map),
-            TokenKind::Keyword(v) => return v.pretty_print(handle),
-            TokenKind::Identifier(v) => {
-                let _ = write!(handle, "ident({})", symbol_map[*v]);
-                return
-            },
-        });
+        let _ = write!(
+            handle,
+            "{}",
+            match self {
+                TokenKind::LeftParenthesis => "(",
+                TokenKind::RightParenthesis => ")",
+                TokenKind::LeftAngle => "<",
+                TokenKind::RightAngle => ">",
+                TokenKind::LeftBracket => "{",
+                TokenKind::RightBracket => "}",
+                TokenKind::LeftSquare => "[",
+                TokenKind::RightSquare => "]",
+                TokenKind::Percent => "%",
+                TokenKind::Slash => "/",
+                TokenKind::Plus => "+",
+                TokenKind::Minus => "-",
+                TokenKind::Star => "*",
+                TokenKind::Caret => "^",
+                TokenKind::Colon => ":",
+                TokenKind::DoubleColon => "::",
+                TokenKind::Comma => ",",
+                TokenKind::Dot => ".",
+                TokenKind::DoubleDot => "..",
+                TokenKind::Bang => "!",
+                TokenKind::Equals => "=",
+                TokenKind::Underscore => "_",
+                TokenKind::LesserEquals => "<=",
+                TokenKind::GreaterEquals => ">=",
+                TokenKind::EqualsTo => "==",
+                TokenKind::NotEqualsTo => "!=",
+                TokenKind::LogicalOr => "||",
+                TokenKind::LogicalAnd => "&&",
+                TokenKind::EndOfFile => "eof",
+                TokenKind::Semicolon => ";",
+                TokenKind::Ampersand => "&",
+                TokenKind::SquigglyDash => "~",
+
+                TokenKind::Literal(v) => return v.pretty_print(handle, symbol_map),
+                TokenKind::Keyword(v) => return v.pretty_print(handle),
+                TokenKind::Identifier(v) => {
+                    let _ = write!(handle, "ident({})", symbol_map[*v]);
+                    return;
+                }
+            }
+        );
     }
 }
-
 
 impl Literal {
     fn pretty_print(&self, handle: &mut impl Write, symbol_map: &SymbolMap) {
@@ -719,26 +698,24 @@ impl Literal {
 
         let _ = match self {
             Literal::Integer(v) => write!(handle, "{}", v),
-            Literal::Float  (v) => write!(handle, "{}", v),
-            Literal::String (v) => write!(handle, "{}", &symbol_map[*v]),
-            Literal::Bool   (v) => write!(handle, "{}", v),
+            Literal::Float(v) => write!(handle, "{}", v),
+            Literal::String(v) => write!(handle, "{}", &symbol_map[*v]),
+            Literal::Bool(v) => write!(handle, "{}", v),
         };
-        
+
         let _ = write!(handle, ")");
     }
 }
-
 
 impl Keyword {
     fn pretty_print(&self, handle: &mut impl Write) {
         let _ = write!(handle, "kw(");
 
         let _ = write!(handle, "{}", self.to_str().unwrap());
-        
+
         let _ = write!(handle, ")");
     }
 }
-
 
 impl Keyword {
     fn to_str(self) -> Option<&'static str> {
@@ -763,7 +740,6 @@ impl Keyword {
             Keyword::As => "as",
             Keyword::Const => "const",
             Keyword::Static => "static",
-            
         })
     }
 }
