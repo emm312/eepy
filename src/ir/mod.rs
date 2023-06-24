@@ -1,3 +1,4 @@
+use inkwell::module::Linkage;
 use istd::bump_box;
 
 bump_box!(ir_type_scope, IRTypeMap, IRTypeBox, crate::ir::IRType);
@@ -42,6 +43,16 @@ pub enum IRLinkage {
     Public,
     Private,
     External,
+}
+
+impl IRLinkage {
+    pub fn to_llvm(&self) -> Option<Linkage> {
+        match self {
+            IRLinkage::External => Some(Linkage::External),
+            IRLinkage::Public => None,
+            IRLinkage::Private => Some(Linkage::Private),
+        }
+    }
 }
 
 pub struct IRBasicBlock {
@@ -119,6 +130,10 @@ pub enum IRExpr {
     Mod(IRExprBox, IRExprBox),
     Div(IRExprBox, IRExprBox),
     Mul(IRExprBox, IRExprBox),
+    And(IRExprBox, IRExprBox),
+    Or (IRExprBox, IRExprBox),
+    Xor(IRExprBox, IRExprBox),
+    Not(IRExprBox),
     FnCall(String, Vec<IRExpr>),
 }
 
