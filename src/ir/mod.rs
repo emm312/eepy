@@ -1,3 +1,17 @@
+use istd::bump_box;
+
+bump_box!(ir_type_scope, IRTypeMap, IRTypeBox, crate::ir::IRType);
+bump_box!(ir_expr_scope, IRExprMap, IRExprBox, crate::ir::IRExpr);
+bump_box!(ir_value_scope, IRValueMap, IRValueBox, crate::ir::IRValue);
+
+
+pub fn init_maps() {
+    IRTypeMap::init(1000);
+    IRExprMap::init(1000);
+    IRValueMap::init(1000);
+}
+
+
 #[derive(Debug, Clone)]
 pub enum IRType {
     I8,
@@ -10,8 +24,8 @@ pub enum IRType {
     U64,
     SignedPtr,
     UnsignedPtr,
-    Ref(Box<IRType>),
-    Array(Box<IRType>, usize),
+    Ref(IRTypeBox),
+    Array(IRTypeBox, usize),
     Custom(Vec<IRType>),
     ZeroSized,
 }
@@ -36,6 +50,7 @@ pub struct IRBasicBlock {
     pub terminator: IRTerminator,
 }
 
+#[derive(Clone)]
 pub enum IRValue {
     I8(i8),
     I16(i16),
@@ -47,7 +62,7 @@ pub enum IRValue {
     U64(u64),
     SignedPtr(isize),
     UnsignedPtr(usize),
-    Ref(Box<IRValue>),
+    Ref(IRValueBox),
     Array(Vec<IRValue>, usize),
     Custom(Vec<IRValue>),
 }
@@ -83,7 +98,7 @@ impl IRValue {
                     IRType::ZeroSized
                 }
             }
-            IRValue::Ref(val) => IRType::Ref(Box::new(val.to_type())),
+            IRValue::Ref(val) => IRType::Ref(IRTypeBox::new(val.to_type())),
         }
     }
 }
@@ -94,14 +109,16 @@ pub enum IRInstr {
     Expr(IRExpr),
 }
 
+
+#[derive(Clone)]
 pub enum IRExpr {
     GetVar(String),
     Value(IRValue),
-    Add(Box<IRExpr>, Box<IRExpr>),
-    Sub(Box<IRExpr>, Box<IRExpr>),
-    Mod(Box<IRExpr>, Box<IRExpr>),
-    Div(Box<IRExpr>, Box<IRExpr>),
-    Mul(Box<IRExpr>, Box<IRExpr>),
+    Add(IRExprBox, IRExprBox),
+    Sub(IRExprBox, IRExprBox),
+    Mod(IRExprBox, IRExprBox),
+    Div(IRExprBox, IRExprBox),
+    Mul(IRExprBox, IRExprBox),
     FnCall(String, Vec<IRExpr>),
 }
 
