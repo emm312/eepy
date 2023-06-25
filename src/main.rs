@@ -94,6 +94,5 @@ fn main() {
     let ir_module = IRModule {
         functions: vec![putchar_fn, main_fn],
     };
-
-    Codegen::compile(ir_module, args.jit);
+    Codegen::compile(args.jit, ir_module);
 }

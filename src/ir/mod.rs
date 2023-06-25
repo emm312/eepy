@@ -1,17 +1,14 @@
-use inkwell::module::Linkage;
 use istd::bump_box;
 
 bump_box!(ir_type_scope, IRTypeMap, IRTypeBox, crate::ir::IRType);
 bump_box!(ir_expr_scope, IRExprMap, IRExprBox, crate::ir::IRExpr);
 bump_box!(ir_value_scope, IRValueMap, IRValueBox, crate::ir::IRValue);
 
-
 pub fn init_maps() {
     IRTypeMap::init(1000);
     IRExprMap::init(1000);
     IRValueMap::init(1000);
 }
-
 
 #[derive(Debug, Clone)]
 pub enum IRType {
@@ -23,11 +20,10 @@ pub enum IRType {
     U16,
     U32,
     U64,
-    SignedPtr,
-    UnsignedPtr,
+    Size,
     Ref(IRTypeBox),
     Array(IRTypeBox, usize),
-    Custom(Vec<IRType>),
+    Custom(String, Vec<(String, IRType)>),
     ZeroSized,
 }
 
@@ -43,16 +39,6 @@ pub enum IRLinkage {
     Public,
     Private,
     External,
-}
-
-impl IRLinkage {
-    pub fn to_llvm(&self) -> Option<Linkage> {
-        match self {
-            IRLinkage::External => Some(Linkage::External),
-            IRLinkage::Public => None,
-            IRLinkage::Private => Some(Linkage::Private),
-        }
-    }
 }
 
 pub struct IRBasicBlock {
@@ -71,11 +57,10 @@ pub enum IRValue {
     U16(u16),
     U32(u32),
     U64(u64),
-    SignedPtr(isize),
-    UnsignedPtr(usize),
+    Size(usize),
     Ref(IRValueBox),
     Array(Vec<IRValue>, usize),
-    Custom(Vec<IRValue>),
+    Custom(String, Vec<(String, IRValue)>),
 }
 
 impl IRValue {
@@ -89,8 +74,7 @@ impl IRValue {
             IRValue::U16(_) => IRType::U16,
             IRValue::U32(_) => IRType::U32,
             IRValue::U64(_) => IRType::U64,
-            IRValue::SignedPtr(_) => IRType::SignedPtr,
-            IRValue::UnsignedPtr(_) => IRType::UnsignedPtr,
+            IRValue::Size(_) => IRType::Size,
             IRValue::Array(vals, len) => {
                 if *len > 0 {
                     vals[0].to_type()
@@ -98,13 +82,13 @@ impl IRValue {
                     IRType::ZeroSized
                 }
             }
-            IRValue::Custom(vals) => {
+            IRValue::Custom(name, vals) => {
                 if vals.len() > 0 {
                     let mut types = Vec::new();
-                    for val in vals {
-                        types.push(val.to_type())
+                    for (n, val) in vals {
+                        types.push((n.clone(), val.to_type()))
                     }
-                    IRType::Custom(types)
+                    IRType::Custom(name.clone(), types)
                 } else {
                     IRType::ZeroSized
                 }
@@ -120,7 +104,6 @@ pub enum IRInstr {
     Expr(IRExpr),
 }
 
-
 #[derive(Clone)]
 pub enum IRExpr {
     GetVar(String),
@@ -131,7 +114,7 @@ pub enum IRExpr {
     Div(IRExprBox, IRExprBox),
     Mul(IRExprBox, IRExprBox),
     And(IRExprBox, IRExprBox),
-    Or (IRExprBox, IRExprBox),
+    Or(IRExprBox, IRExprBox),
     Xor(IRExprBox, IRExprBox),
     Not(IRExprBox),
     FnCall(String, Vec<IRExpr>),
