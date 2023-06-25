@@ -134,6 +134,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eepy"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "colored",
+ "gccjit",
+ "istd",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -297,16 +307,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "taube"
-version = "0.1.0"
-dependencies = [
- "clap",
- "colored",
- "gccjit",
- "istd",
 ]
 
 [[package]]
