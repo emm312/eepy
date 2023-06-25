@@ -1,5 +1,5 @@
 [package]
-name = "taube"
+name = "eepy"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,7 +10,7 @@ afl = []
 [dependencies]
 # ariadne = "0.3.0"
 clap = { version = "4.3.4", features = ["derive"] }
-inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm16-0"] }
 
 colored = "*"
 istd = { git = "https://github.com/rookieCookies/istd" }
+gccjit = { git = "https://github.com/swgillespie/gccjit.rs" }

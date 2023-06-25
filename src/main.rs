@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::read_to_string};
 
 use clap::Parser as ClapParser;
 
-use taube::{
+use eepy::{
     backend::codegen::Codegen,
     envs::{env_flag, DUMP_AST, DUMP_TOKENS},
     frontend::parser::parse,
@@ -94,6 +94,5 @@ fn main() {
     let ir_module = IRModule {
         functions: vec![putchar_fn, main_fn],
     };
-
-    Codegen::compile(ir_module, args.jit);
+    Codegen::compile(args.jit, ir_module);
 }
