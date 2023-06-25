@@ -62,3 +62,22 @@ impl Literal {
     }
 }
 
+
+pub struct Range {
+    min: isize,
+    max: isize,
+}
+
+
+impl Range {
+    pub fn new (min: isize, max: isize) -> Self {
+        assert!(min <= max);
+        Self { min, max }
+    }
+
+
+    pub fn within(&self, oth: &Range) -> bool {
+        oth.min <= self.min && self.max <= oth.max
+    }
+    
+}

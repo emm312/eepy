@@ -2,10 +2,16 @@ use std::io::Write;
 
 use istd::index_map;
 
-use crate::frontend::{SourceRange, Literal, lexer::{Token, TokenKind}, SymbolMap};
+use crate::frontend::{SourceRange, Literal, lexer::{Token, TokenKind}, SymbolMap, SymbolIndex};
 
 
 index_map!(NodeMap, NodeIndex, Node);
+
+impl NodeMap {
+    pub fn trim(&mut self) {
+        self.vec.shrink_to_fit()
+    }
+}
 
 
 #[derive(Debug)]
@@ -42,12 +48,68 @@ pub enum NodeType {
 
 #[derive(Debug, PartialEq)]
 pub enum Declaration {
+    FunctionDeclaration {
+        ident: SymbolIndex,
+        arguments: Vec<(SymbolIndex, DataTypeNode)>,
+        return_type: DataTypeNode,
+        block: Block,
+    },
+
+
+    StructureDeclaration {
+        ident: SymbolIndex,
+        fields: Vec<(SymbolIndex, DataTypeNode)>,
+    },
+
+
+    NamespaceDeclaration {
+        ident: SymbolIndex,
+        block: Block,
+    },
+
+
+    ExternFunctionDeclaration {
+        ident: SymbolIndex,
+        extern_type: SymbolIndex,
+        arguments: Vec<(SymbolIndex, DataTypeNode)>,
+        return_type: DataTypeNode,
+        custom_name: SymbolIndex,
+    },
+
+
+    ConstItemDeclaration {
+        ident: SymbolIndex,
+        type_hint: Option<DataTypeNode>,
+        value: NodeIndex,
+    },
+
+
+    StaticItemDeclaration {
+        ident: SymbolIndex,
+        type_hint: Option<DataTypeNode>,
+        value: NodeIndex,
+        mutability: bool,
+    },
+
+
+    UsingDeclaration {
+        path: PathSymbol,
+    }
 }
 
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
-        
+    Continue,
+    Break(NodeIndex),
+    Return(NodeIndex),
+
+    VarDeclaration {
+        name: SymbolIndex,
+        type_hint: Option<DataTypeNode>,
+        value: NodeIndex,
+        mutability: bool,
+    }
 }
 
 
@@ -82,7 +144,7 @@ pub enum Expression {
 
 
     Loop {
-        body: Block,
+        block: Block,
     },
 
 
@@ -93,6 +155,11 @@ pub enum Expression {
 
     Unsafe {
         block: Block,
+    },
+
+
+    Identifier {
+        ident: SymbolIndex,
     }
 }
 
@@ -193,7 +260,7 @@ impl UnaryOperator {
             TokenKind::Bang  => UnaryOperatorKind::Not,
             TokenKind::Minus => UnaryOperatorKind::Neg,
 
-            _ => panic!("unexpeted token kind")
+            _ => panic!("unexpected token kind")
         };
 
 
@@ -233,4 +300,41 @@ impl std::ops::DerefMut for Block {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct DataTypeNode {
+    pub source_range: SourceRange,
+    pub data_type: DataType,
+    pub condition: Option<DataTypeConditionNode>,
+}
+
+
+#[derive(Debug, PartialEq)]
+pub enum DataType {
+    U8,
+    I8,
+    Empty,
+
+    Custom(PathSymbol)
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct DataTypeConditionNode {
+    pub binding_name: SymbolIndex,
+    pub condition: NodeIndex,
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct PathSymbol {
+    pub source_range: SourceRange,
+    pub value: SymbolIndex,
+}
+
+
+impl PathSymbol {
+    pub fn new(source_range: SourceRange, value: SymbolIndex) -> Self { Self { value, source_range } }
 }

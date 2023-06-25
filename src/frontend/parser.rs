@@ -1,10 +1,8 @@
-use self::ast::{NodeMap, AbstractSyntaxTree, NodeIndex, BinaryOperator, Node, NodeType, Block, Expression, Declaration, Statement};
+use self::ast::{NodeMap, AbstractSyntaxTree, NodeIndex, BinaryOperator, Node, NodeType, Block, Expression, Declaration, Statement, DataTypeNode, PathSymbol, DataType, DataTypeConditionNode};
 
 use super::{lexer::{Token, TokenKind, Keyword}, SymbolMap, errors::{Error, CompilerError, ErrorBuilder, CombineIntoError}, SourceRange, SymbolIndex, Literal};
 
-
 mod ast;
-
 
 struct Parser<'a> {
     index: usize,
@@ -25,17 +23,22 @@ pub fn parse(file: SymbolIndex, tokens: &[Token], symbol_map: &mut SymbolMap) ->
 
         // `tokens.len()` is the maximum 
         // amount of instructions that can be created
-        node_map: NodeMap::with_capacity(tokens.len()),
+        node_map: NodeMap::with_capacity(tokens.len() * 2),
 
         file,
     };
 
+
     let result = parser.parse_till(TokenKind::EndOfFile)?;
+    // let result = parser.parse_type();
 
 
     // Assert that the map does not grow. 
     // Just a fail safe in case we miss something.
-    assert_eq!(parser.node_map.capacity(), tokens.len());
+    assert_eq!(parser.node_map.capacity(), tokens.len() * 2);
+
+    parser.node_map.trim();
+
     Ok(AbstractSyntaxTree::new(result, parser.node_map))
 }
 
@@ -58,7 +61,9 @@ impl Parser<'_> {
             }
 
             let statement = self.statement();
-            self.advance();
+            if self.current_kind() != TokenKind::Semicolon {
+                self.advance();
+            }
 
             match statement {
                 Ok(v)  => nodes.push(v),
@@ -89,6 +94,60 @@ impl Parser<'_> {
         } else {
             Err(errors.combine_into_error())
         }
+    }
+
+
+    fn parse_type(&mut self) -> Result<DataTypeNode, Error> {
+        let start = self.current_range();
+        let type_path = self.parse_path()?;
+        
+        let condition = if self.peek_kind() == Some(TokenKind::SquigglyDash) {
+            self.advance();
+            self.advance();
+            
+            self.expect(TokenKind::LeftSquare)?;
+            self.advance();
+
+            let binding_name = self.expect_identifier()?;
+            self.advance();
+
+            self.expect(TokenKind::Colon)?;
+            self.advance();
+            
+            let condition = self.expression()?;
+            self.advance();
+
+            self.expect(TokenKind::RightSquare)?;
+
+            Some(DataTypeConditionNode {
+                binding_name,
+                condition,
+            })
+        } else {
+            None
+        };
+
+
+        let data_type = match self.symbol_map.get(type_path.value).map(|x| x.as_str()) {
+            Some("u8") => DataType::U8,
+            Some("i8") => DataType::I8,
+            _ => DataType::Custom(type_path),
+        };
+        
+
+        Ok(DataTypeNode {
+            source_range: start.with(self.current_range()),
+            data_type,
+            condition,
+        })
+    }
+
+
+    fn parse_path(&mut self) -> Result<PathSymbol, Error> {
+        let start = self.current_range();
+        let ident = self.expect_identifier()?;
+
+        Ok(PathSymbol::new(start.with(self.current_range()), ident))
     }
 
 
@@ -171,23 +230,474 @@ impl Parser<'_> {
 
         Ok(())
     }
-}
 
 
-impl Parser<'_> {
-    fn statement(&mut self) -> Result<NodeIndex, Error> {
-        match self {
-            _ => self.expression()
+    fn expect_identifier(&self) -> Result<SymbolIndex, Error> {
+        if let TokenKind::Identifier(i) = self.current_kind() {
+            Ok(i)
+        } else {
+            Err(CompilerError::new(self.file, "unexpected token")
+                .highlight(self.current_range())
+                    .note(format!("expected 'an identifier' found '{}'", self.current_kind().to_str(self.symbol_map)))
+                .build())
+        }
+    }
+
+
+    fn expect_str_literal(&self) -> Result<SymbolIndex, Error> {
+        if let TokenKind::Literal(Literal::String(i)) = self.current_kind() {
+            Ok(i)
+        } else {
+            Err(CompilerError::new(self.file, "unexpected token")
+                .highlight(self.current_range())
+                    .note(format!("expected 'a literal string' found '{}'", self.current_kind().to_str(self.symbol_map)))
+                .build())
         }
     }
 }
 
 
 impl Parser<'_> {
-    fn expression(&mut self) -> Result<NodeIndex, Error> {
-        self.comparisson_expression()
+    fn statement(&mut self) -> Result<NodeIndex, Error> {
+        match self.current_kind() {
+            TokenKind::Keyword(Keyword::While) => self.while_statement(),
+            TokenKind::Keyword(Keyword::Break) => self.break_statement(),
+            TokenKind::Keyword(Keyword::Continue) => self.continue_statement(),
+            TokenKind::Keyword(Keyword::Return) => self.return_statement(),
+            TokenKind::Keyword(Keyword::Let) => self.variable_declaration(),
+            TokenKind::Keyword(Keyword::Struct) => self.structure_declaration(),
+            TokenKind::Keyword(Keyword::Fn) => self.function_declaration(),
+            TokenKind::Keyword(Keyword::Extern) => self.extern_declaration(),
+            TokenKind::Keyword(Keyword::Const) => self.const_item_declaration(),
+            TokenKind::Keyword(Keyword::Static) => self.static_item_declaration(),
+            TokenKind::Keyword(Keyword::Using) => self.using_declaration(),
+            TokenKind::Keyword(Keyword::Namespace) => self.namespace_declaration(),
+            _ => self.expression()
+        }
     }
 
+
+    fn while_statement(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::While))?;
+        self.advance();
+
+        let condition = self.expression()?;
+        self.advance();
+
+        let block = self.parse_block()?;
+
+
+        {
+            let continue_stmt = Vec::from([self.new_statement(start, Statement::Continue)]);
+
+            
+            let else_block = Some(self.new_expression(
+                start,
+                Expression::Block {
+                    block: Block::new(continue_stmt),
+                }
+            ));
+
+        
+            let break_if_condition_is_false = self.new_expression(
+                start, 
+                Expression::IfExpression {
+                    condition,
+                    block,
+                    else_block
+                }
+            );
+
+
+            Ok(self.new_expression(
+                start,
+                Expression::Loop {
+                    block: Block::new(Vec::from([break_if_condition_is_false]))
+                }
+            ))
+        }
+
+    }
+
+
+    fn break_statement(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Break))?;
+        self.advance();
+
+        let expr = self.expression()?;
+
+        Ok(self.new_statement(start, Statement::Break(expr)))
+    }
+
+
+    fn return_statement(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Return))?;
+        self.advance();
+
+        let expr = self.expression()?;
+
+        Ok(self.new_statement(start, Statement::Return(expr)))
+    }
+
+
+    fn continue_statement(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Continue))?;
+
+        Ok(self.new_statement(start, Statement::Continue))
+    }
+
+    
+    fn variable_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Let))?;
+        self.advance();
+
+        let mutability = if self.expect(TokenKind::Keyword(Keyword::Mut)).is_ok() {
+            self.advance();
+            true
+        } else { false };
+
+        let name = self.expect_identifier()?;
+        self.advance();
+
+        let type_hint = if self.expect(TokenKind::Colon).is_ok() {
+            self.advance();
+            let type_hint = self.parse_type()?;
+            self.advance();
+            
+            Some(type_hint)
+            
+        } else { None };
+
+        self.expect(TokenKind::Equals)?;
+        self.advance();
+
+        let value = self.expression()?;
+
+        Ok(self.new_statement(start, Statement::VarDeclaration {
+            name,
+            type_hint,
+            value,
+            mutability
+        }))
+    }
+
+
+    fn function_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Fn))?;
+        self.advance();
+
+        let ident = self.expect_identifier()?;
+        self.advance();
+
+        self.expect(TokenKind::LeftParenthesis)?;
+        self.advance();
+
+        let mut arguments: Vec<(SymbolIndex, DataTypeNode)> = vec![];
+        loop {
+            if self.expect(TokenKind::RightParenthesis).is_ok() {
+                break;
+            }
+
+
+            if !arguments.is_empty() {
+                self.expect(TokenKind::Comma)?;
+            }
+
+            
+            if self.expect(TokenKind::RightParenthesis).is_ok() {
+                break;
+            }
+
+            
+            let ident = self.expect_identifier()?;
+            self.advance();
+
+            self.expect(TokenKind::Colon)?;
+            self.advance();
+
+            let data_type = self.parse_type()?;
+            self.advance();
+
+            arguments.push((ident, data_type));
+        }
+
+        self.expect(TokenKind::RightParenthesis)?;
+        self.advance();
+
+        let return_type = if self.current_kind() == TokenKind::Colon {
+            self.advance();
+            let t = self.parse_type()?;
+            self.advance();
+
+            t
+        } else { DataTypeNode { source_range: self.current_range(), data_type: DataType::Empty, condition: None }};
+
+
+        let block = self.parse_block()?;
+
+
+        Ok(self.new_declaration(start, Declaration::FunctionDeclaration { 
+            ident,
+            arguments,
+            return_type,
+            block }
+        ))
+    }
+
+
+    fn structure_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Struct))?;
+        self.advance();
+
+        let ident = self.expect_identifier()?;
+        self.advance();
+
+        self.expect(TokenKind::LeftBracket)?;
+        self.advance();
+
+        let mut fields = vec![];
+
+        loop {
+            if self.expect(TokenKind::RightBracket).is_ok() {
+                break
+            }
+
+
+            if !fields.is_empty() {
+                self.expect(TokenKind::Comma)?;
+            }
+
+
+            if self.expect(TokenKind::RightBracket).is_ok() {
+                break
+            }
+
+
+            let ident = self.expect_identifier()?;
+            self.advance();
+
+            self.expect(TokenKind::Colon)?;
+            self.advance();
+
+            let field_type = self.parse_type()?;
+
+            
+            fields.push((ident, field_type));
+        }
+
+        self.expect(TokenKind::RightBracket)?;
+        self.advance();
+
+        Ok(self.new_declaration(start, Declaration::StructureDeclaration { ident, fields }))
+    }
+
+
+    fn namespace_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Namespace))?;
+        self.advance();
+
+        let ident = self.expect_identifier()?;
+        self.advance();
+
+        let block = self.parse_block()?;
+
+        Ok(self.new_declaration(start, Declaration::NamespaceDeclaration { ident, block }))
+    }
+
+
+    fn extern_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Extern))?;
+        self.advance();
+
+        let extern_type = self.expect_str_literal()?;
+        self.advance();
+
+        self.expect(TokenKind::Keyword(Keyword::Fn))?;
+        self.advance();
+
+        let custom_name = self.expect_str_literal().ok();
+        if custom_name.is_some() {
+            self.advance();
+        }
+        
+        let ident = self.expect_identifier()?;
+        
+        let custom_name = if let Some(v) = custom_name { v }
+                          else { ident };
+        self.advance();
+
+        
+        self.expect(TokenKind::LeftParenthesis)?;
+        self.advance();
+
+        let mut arguments: Vec<(SymbolIndex, DataTypeNode)> = vec![];
+        loop {
+            if self.expect(TokenKind::RightParenthesis).is_ok() {
+                break;
+            }
+
+
+            if !arguments.is_empty() {
+                self.expect(TokenKind::Comma)?;
+            }
+
+            
+            if self.expect(TokenKind::RightParenthesis).is_ok() {
+                break;
+            }
+
+            
+            let ident = self.expect_identifier()?;
+            self.advance();
+
+            self.expect(TokenKind::Colon)?;
+            self.advance();
+
+            let data_type = self.parse_type()?;
+            self.advance();
+
+            arguments.push((ident, data_type));
+        }
+
+        self.expect(TokenKind::RightParenthesis)?;
+
+
+        let return_type = if self.peek_kind() == Some(TokenKind::Colon) {
+            self.advance();
+            self.advance();
+            let t = self.parse_type()?;
+            self.advance();
+
+            t
+        } else { DataTypeNode { source_range: self.current_range(), data_type: DataType::Empty, condition: None }};
+
+
+        Ok(self.new_declaration(start, Declaration::ExternFunctionDeclaration { ident, extern_type, arguments, return_type, custom_name }))
+    }
+
+
+    fn const_item_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Const))?;
+        self.advance();
+
+        let ident = self.expect_identifier()?;
+        self.advance();
+
+        let type_hint = if self.expect(TokenKind::Colon).is_ok() {
+            self.advance();
+            let type_hint = self.parse_type()?;
+            self.advance();
+
+            Some(type_hint)
+        } else { None };
+
+        self.expect(TokenKind::Equals)?;
+        self.advance();
+
+        let value = self.expression()?;
+
+
+        Ok(self.new_declaration(start, Declaration::ConstItemDeclaration { ident, type_hint, value }))
+    }
+
+
+    fn static_item_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Static))?;
+        self.advance();
+
+        let mutability = if self.expect(TokenKind::Keyword(Keyword::Mut)).is_ok() {
+            self.advance();
+            true
+        } else { false };
+
+
+        let ident = self.expect_identifier()?;
+        self.advance();
+
+        let type_hint = if self.expect(TokenKind::Colon).is_ok() {
+            self.advance();
+            let type_hint = self.parse_type()?;
+            self.advance();
+
+            Some(type_hint)
+        } else { None };
+
+        self.expect(TokenKind::Equals)?;
+        self.advance();
+
+        let value = self.expression()?;
+
+
+        Ok(self.new_declaration(start, Declaration::StaticItemDeclaration { ident, type_hint, value, mutability }))
+    }
+
+
+    fn using_declaration(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Using))?;
+        self.advance();
+
+        let path = self.parse_path()?;
+
+        Ok(self.new_declaration(start, Declaration::UsingDeclaration { path }))
+    }
+}
+
+
+impl Parser<'_> {
+    fn expression(&mut self) -> Result<NodeIndex, Error> {
+        self.logical_or()
+    }
+
+
+    fn logical_or(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        let first = self.logical_and()?;
+
+        if self.peek_kind() != Some(TokenKind::LogicalOr) {
+            return Ok(first)
+        }
+
+        self.advance();
+        self.advance();
+
+        let other = self.expression()?;
+
+
+        let true_val = self.new_expression(start, Expression::Literal(Literal::Bool(true)));
+        Ok(self.new_expression(start, Expression::IfExpression { condition: first, block: Block::new(vec![true_val]), else_block: Some(other) }))
+    }
+
+
+    fn logical_and(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        let first = self.comparisson_expression()?;
+
+        if self.peek_kind() != Some(TokenKind::LogicalAnd) {
+            return Ok(first)
+        }
+
+        self.advance();
+        self.advance();
+
+        let other = self.expression()?;
+
+
+        let false_val = self.new_expression(start, Expression::Literal(Literal::Bool(false)));
+        Ok(self.new_expression(start, Expression::IfExpression { condition: first, block: Block::new(vec![other]), else_block: Some(false_val) }))
+    }
+    
 
     fn comparisson_expression(&mut self) -> Result<NodeIndex, Error> {
         self.binary_operation(
@@ -285,6 +795,16 @@ impl Parser<'_> {
 
 
             TokenKind::Keyword(Keyword::If) => self.if_expression(),
+            TokenKind::Keyword(Keyword::Loop) => self.loop_expression(),
+            TokenKind::Keyword(Keyword::Unsafe) => self.unsafe_expression(),
+
+
+            TokenKind::Identifier(_) => self.variable_access(),
+
+
+            TokenKind::Semicolon => {
+                Ok(self.new_expression(self.current_range(), Expression::Literal(Literal::Empty)))
+            },
 
             _ => return Err(CompilerError::new(self.file, "unexpected token")
                     .highlight(self.current_range())
@@ -318,6 +838,41 @@ impl Parser<'_> {
                 else_block 
             })
         )
+    }
+
+
+    fn loop_expression(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Loop))?;
+        self.advance();
+
+        let block = self.parse_block()?;
+
+        Ok(self.new_expression(
+            start,
+            Expression::Loop { block }
+        ))
+    }
+
+
+    fn unsafe_expression(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        self.expect(TokenKind::Keyword(Keyword::Unsafe))?;
+        self.advance();
+
+        let block = self.parse_block()?;
+
+        Ok(self.new_expression(
+            start, 
+            Expression::Unsafe { block }
+        ))
+    }
+
+
+    fn variable_access(&mut self) -> Result<NodeIndex, Error> {
+        let ident = self.expect_identifier()?;
+
+        Ok(self.new_expression(self.current_range(), Expression::Identifier { ident }))
     }
 }
 
