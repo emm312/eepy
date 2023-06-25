@@ -27,6 +27,7 @@ pub enum IRType {
     ZeroSized,
 }
 
+#[derive(Debug)]
 pub struct IRFunction {
     pub name: String,
     pub return_type: IRType,
@@ -35,19 +36,21 @@ pub struct IRFunction {
     pub linkage: IRLinkage,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum IRLinkage {
     Public,
     Private,
     External,
 }
 
+#[derive(Debug)]
 pub struct IRBasicBlock {
     pub name: String,
     pub instrs: Vec<IRInstr>,
     pub terminator: IRTerminator,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum IRValue {
     I8(i8),
     I16(i16),
@@ -98,13 +101,14 @@ impl IRValue {
     }
 }
 
+#[derive(Debug)]
 pub enum IRInstr {
     NewVar(String, IRType),
     SetVar(String, IRExpr),
     Expr(IRExpr),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum IRExpr {
     GetVar(String),
     Value(IRValue),
@@ -120,6 +124,7 @@ pub enum IRExpr {
     FnCall(String, Vec<IRExpr>),
 }
 
+#[derive(Debug)]
 pub enum IRTerminator {
     Jmp(String),
     Branch(IRExpr, String, String),
