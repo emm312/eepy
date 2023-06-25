@@ -215,7 +215,7 @@ pub fn lex(
             },
 
             '&' => lexer.next_matches('&', TokenKind::LogicalAnd, TokenKind::BitwiseAND),
-            '|' => lexer.next_matches('&', TokenKind::LogicalOr, TokenKind::BitwiseOR),
+            '|' => lexer.next_matches('|', TokenKind::LogicalOr, TokenKind::BitwiseOR),
             '{' => TokenKind::LeftBracket,
             '}' => TokenKind::RightBracket,
             '[' => TokenKind::LeftSquare,
@@ -231,7 +231,6 @@ pub fn lex(
             '=' => lexer.next_matches('=', TokenKind::EqualsTo, TokenKind::Equals),
             '!' => lexer.next_matches('=', TokenKind::NotEqualsTo, TokenKind::Bang),
             ';' => TokenKind::Semicolon,
-            '&' => TokenKind::Ampersand,
             '~' => TokenKind::SquigglyDash,
 
             
@@ -361,8 +360,8 @@ impl Lexer<'_> {
             "struct" => TokenKind::Keyword(Keyword::Struct),
             "namespace" => TokenKind::Keyword(Keyword::Namespace),
             "unsafe" => TokenKind::Keyword(Keyword::Unsafe),
-            "promise" => TokenKind::Keyword(Keyword::Promise),
-            "extern" => TokenKind::Keyword(Keyword::Extern),
+            // "promise" => TokenKind::Keyword(Keyword::Promise),
+            "ext" => TokenKind::Keyword(Keyword::Extern),
             "if" => TokenKind::Keyword(Keyword::If),
             "else" => TokenKind::Keyword(Keyword::Else),
             "while" => TokenKind::Keyword(Keyword::While),
