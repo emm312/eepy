@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::read_to_string};
 
 use clap::Parser as ClapParser;
 
-use taube::{
+use eepy::{
     backend::codegen::Codegen,
     envs::{env_flag, DUMP_AST, DUMP_TOKENS},
     frontend::parser::parse,
