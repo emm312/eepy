@@ -1,3 +1,4 @@
+use gccjit::BinaryOp;
 use istd::bump_box;
 
 bump_box!(ir_type_scope, IRTypeMap, IRTypeBox, crate::ir::IRType);
@@ -27,7 +28,7 @@ pub enum IRType {
     ZeroSized,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IRFunction {
     pub name: String,
     pub return_type: IRType,
@@ -36,14 +37,14 @@ pub struct IRFunction {
     pub linkage: IRLinkage,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum IRLinkage {
     Public,
     Private,
     External,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IRBasicBlock {
     pub name: String,
     pub instrs: Vec<IRInstr>,
@@ -101,7 +102,7 @@ impl IRValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IRInstr {
     NewVar(String, IRType),
     SetVar(String, IRExpr),
@@ -112,25 +113,46 @@ pub enum IRInstr {
 pub enum IRExpr {
     GetVar(String),
     Value(IRValue),
-    Add(IRExprBox, IRExprBox),
-    Sub(IRExprBox, IRExprBox),
-    Mod(IRExprBox, IRExprBox),
-    Div(IRExprBox, IRExprBox),
-    Mul(IRExprBox, IRExprBox),
-    And(IRExprBox, IRExprBox),
-    Or(IRExprBox, IRExprBox),
-    Xor(IRExprBox, IRExprBox),
+    BiOp(BiOp, IRExprBox, IRExprBox),
     Not(IRExprBox),
     FnCall(String, Vec<IRExpr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum BiOp {
+    Add,
+    Sub,
+    Mod,
+    Div,
+    Mul,
+    And,
+    Or,
+    Xor,
+}
+
+impl BiOp {
+    pub fn to_gccjit_op(&self) -> BinaryOp {
+        match self {
+            BiOp::Add => BinaryOp::Plus,
+            BiOp::And => BinaryOp::BitwiseAnd,
+            BiOp::Div => BinaryOp::Divide,
+            BiOp::Mod => BinaryOp::Modulo,
+            BiOp::Mul => BinaryOp::Mult,
+            BiOp::Or => BinaryOp::BitwiseOr,
+            BiOp::Sub => BinaryOp::Minus,
+            BiOp::Xor => BinaryOp::BitwiseXor
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum IRTerminator {
     Jmp(String),
     Branch(IRExpr, String, String),
     Ret(IRExpr),
 }
 
+#[derive(Debug, Clone)]
 pub struct IRModule {
     pub functions: Vec<IRFunction>,
 }

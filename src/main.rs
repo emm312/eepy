@@ -70,6 +70,12 @@ fn main() {
                     String::from("putchar"),
                     vec![IRExpr::Value(IRValue::I8(10))],
                 )),
+                IRInstr::NewVar(String::from("a"), IRType::I8),
+                IRInstr::SetVar(String::from("a"), IRExpr::Value(IRValue::I8(10))),
+                IRInstr::Expr(IRExpr::FnCall(
+                    String::from("putchar"),
+                    vec![IRExpr::GetVar(String::from("a"))],
+                )),
             ],
             terminator: IRTerminator::Ret(zero),
         }]),

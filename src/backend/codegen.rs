@@ -1,6 +1,9 @@
 use std::{collections::HashMap, mem};
 
-use gccjit::{CompileResult, Context, Field, Function, OutputKind, Parameter, RValue, Type, LValue};
+use gccjit::{
+    BinaryOp, CompileResult, Context, Field, Function, LValue, OutputKind, Parameter, RValue,
+    ToRValue, Type,
+};
 
 use crate::{
     envs::env_flag,
@@ -9,18 +12,24 @@ use crate::{
 
 pub struct Codegen<'gcc> {
     ctx: Context<'gcc>,
+    fn_rets: HashMap<String, IRType>,
+    module: IRModule
 }
 
 impl<'gcc> Codegen<'gcc> {
-    fn new() -> Codegen<'gcc> {
+    fn new(module: IRModule) -> Codegen<'gcc> {
         let ctx = Context::default();
         ctx.set_dump_code_on_compile(env_flag("TAUBE_DUMP_ASM"));
         ctx.set_optimization_level(gccjit::OptimizationLevel::None);
-        Codegen { ctx }
+        Codegen {
+            ctx,
+            fn_rets: HashMap::new(),
+            module
+        }
     }
 
     pub fn compile(jit: bool, module: IRModule) {
-        let codegen = Codegen::new();
+        let codegen = Codegen::new(module.clone());
         let mut functions: HashMap<String, Function<'_>> = HashMap::new();
 
         for ir_func in module.functions.iter() {
@@ -55,7 +64,6 @@ impl<'gcc> Codegen<'gcc> {
             } else {
                 panic!("main fn not found");
             };
-            main();
             println!("Process exited with code {}", main());
         } else {
             codegen.ctx.set_dump_code_on_compile(false);
@@ -90,7 +98,18 @@ impl<'gcc> Codegen<'gcc> {
 
             let mut locals = HashMap::new();
             let mut blocks_map = HashMap::new();
-            
+            let preentry = func.new_block("FUNC_PREENTRY");
+            for (pos, arg) in ir_func.args.iter().enumerate() {
+                let val = func.get_param(pos as i32);
+                let arg_l = func.new_local(
+                    None,
+                    self.convert_ir_to_gccjit_type(arg.1.clone()),
+                    arg.0.clone(),
+                );
+                preentry.add_assignment(None, arg_l, val);
+                locals.insert(arg.0.clone(), arg_l);
+            }
+
             if let Some(blocks) = ir_func.blocks {
                 for block in blocks.iter() {
                     let bb = func.new_block(block.name.clone());
@@ -100,7 +119,9 @@ impl<'gcc> Codegen<'gcc> {
                     let bb = blocks_map[&block.name];
                     for instr in block.instrs {
                         match instr {
-                            IRInstr::Expr(e) => bb.add_eval(None, self.compile_expr(e, functions, &locals)),
+                            IRInstr::Expr(e) => {
+                                bb.add_eval(None, self.compile_expr(e, functions, &locals))
+                            }
                             IRInstr::NewVar(name, typ) => {
                                 locals.insert(
                                     name.clone(),
@@ -135,7 +156,7 @@ impl<'gcc> Codegen<'gcc> {
         &'gcc self,
         expr: IRExpr,
         functions: &HashMap<String, Function<'gcc>>,
-        vars: &'gcc HashMap<String, LValue>
+        vars: &'gcc HashMap<String, LValue>,
     ) -> RValue {
         match expr {
             IRExpr::FnCall(func, args) => self.ctx.new_call(
@@ -173,9 +194,38 @@ impl<'gcc> Codegen<'gcc> {
                     .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
                 _ => todo!(),
             },
-            IRExpr::GetVar(var) => vars[&var].get_address(None),
+            IRExpr::GetVar(var) => vars[&var].to_rvalue(),
+            IRExpr::BiOp(op, lhs, rhs) => {
+                let lhs_c = self.compile_expr((*lhs).clone(), functions, vars);
+                let rhs_c = self.compile_expr((*rhs).clone(), functions, vars);
+                self.ctx.new_binary_op(
+                    None,
+                    op.to_gccjit_op(),
+                    self.convert_ir_to_gccjit_type(self.find_typ(&lhs)),
+                    lhs_c,
+                    rhs_c,
+                )
+            }
             _ => todo!(),
         }
+    }
+
+    fn find_typ(&self, expr: &IRExpr) -> IRType {
+        match expr {
+            IRExpr::Value(v) => v.to_type(),
+            IRExpr::BiOp(_, lhs, _) | IRExpr::Not(lhs) => self.find_typ(&lhs),
+            IRExpr::FnCall(name, _) => self.fn_rets[name].clone(),
+            IRExpr::GetVar(name) => self.find_fn_name(name.clone()).expect("call to fn that doesnt exist")
+        }
+    }
+
+    fn find_fn_name(&self, name: String) -> Option<IRType> {
+        for func in self.module.functions.iter() {
+            if func.name == name {
+                return Some(func.return_type.clone());
+            }
+        }
+        None
     }
 
     fn convert_ir_to_gccjit_type(&self, typ: IRType) -> Type {
