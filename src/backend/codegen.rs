@@ -1,8 +1,11 @@
 use std::{collections::HashMap, mem};
 
-use gccjit::{CompileResult, Context, Field, Function, OutputKind, Parameter, RValue, Type};
+use gccjit::{CompileResult, Context, Field, Function, OutputKind, Parameter, RValue, Type, LValue};
 
-use crate::{ir::{IRExpr, IRFunction, IRModule, IRType, IRValue, IRInstr, IRTerminator, IRLinkage}, envs::env_flag};
+use crate::{
+    envs::env_flag,
+    ir::{IRExpr, IRFunction, IRInstr, IRLinkage, IRModule, IRTerminator, IRType, IRValue},
+};
 
 pub struct Codegen<'gcc> {
     ctx: Context<'gcc>,
@@ -12,7 +15,8 @@ impl<'gcc> Codegen<'gcc> {
     fn new() -> Codegen<'gcc> {
         let ctx = Context::default();
         ctx.set_dump_code_on_compile(env_flag("TAUBE_DUMP_ASM"));
-        ctx.set_optimization_level(gccjit::OptimizationLevel::Limited);
+        ctx.dump_reproducer_to_file("test.c");
+        ctx.set_optimization_level(gccjit::OptimizationLevel::None);
         Codegen { ctx }
     }
 
@@ -62,7 +66,9 @@ impl<'gcc> Codegen<'gcc> {
 
     fn compile_inner(&self, module: IRModule, functions: &mut HashMap<String, Function>) {
         for ir_func in module.functions {
-            if let None = ir_func.blocks { continue; }
+            if let None = ir_func.blocks {
+                continue;
+            }
             let args = ir_func
                 .args
                 .iter()
@@ -82,22 +88,46 @@ impl<'gcc> Codegen<'gcc> {
                 &ir_func.name,
                 false,
             );
+
+            let mut locals = HashMap::new();
+            let mut blocks_map = HashMap::new();
+            
             if let Some(blocks) = ir_func.blocks {
+                for block in blocks.iter() {
+                    let bb = func.new_block(block.name.clone());
+                    blocks_map.insert(block.name.clone(), bb);
+                }
                 for block in blocks {
-                    let bb = func.new_block(block.name);
+                    let bb = blocks_map[&block.name];
                     for instr in block.instrs {
                         match instr {
-                            IRInstr::Expr(e) => bb.add_eval(None, self.compile_expr(e, functions)),
-                            _ => todo!()
+                            IRInstr::Expr(e) => bb.add_eval(None, self.compile_expr(e, functions, &locals)),
+                            IRInstr::NewVar(name, typ) => {
+                                locals.insert(
+                                    name.clone(),
+                                    func.new_local(None, self.convert_ir_to_gccjit_type(typ), name),
+                                );
+                            }
+                            IRInstr::SetVar(name, expr) => bb.add_assignment(
+                                None,
+                                locals[&name],
+                                self.compile_expr(expr, functions, &locals),
+                            ),
+                            _ => todo!(),
                         }
                     }
                     match block.terminator {
                         IRTerminator::Ret(val) => {
-                            bb.end_with_return(None, self.compile_expr(val, functions));
+                            bb.end_with_return(None, self.compile_expr(val, functions, &locals));
                         }
-                        _ => todo!()
+                        IRTerminator::Branch(cond, t, f) => {
+                            let res = self.compile_expr(cond, functions, &locals);
+                            bb.end_with_conditional(None, res, blocks_map[&t], blocks_map[&f])
+                        }
+                        IRTerminator::Jmp(b) => bb.end_with_jump(None, blocks_map[&b]),
+                        _ => todo!(),
                     }
-                }    
+                }
             }
         }
     }
@@ -106,29 +136,45 @@ impl<'gcc> Codegen<'gcc> {
         &'gcc self,
         expr: IRExpr,
         functions: &HashMap<String, Function<'gcc>>,
+        vars: &'gcc HashMap<String, LValue>
     ) -> RValue {
         match expr {
             IRExpr::FnCall(func, args) => self.ctx.new_call(
                 None,
                 functions[&func],
                 args.into_iter()
-                    .map(|e| self.compile_expr(e, functions))
+                    .map(|e| self.compile_expr(e, functions, vars))
                     .collect::<Vec<RValue>>()
                     .as_slice(),
             ),
-            IRExpr::Value(val) => {
-                match val {
-                    IRValue::I8(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    IRValue::I16(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    IRValue::I32(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    IRValue::I64(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    IRValue::U8(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    IRValue::U16(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32), 
-                    IRValue::U32(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    IRValue::U64(v) => self.ctx.new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
-                    _ => todo!()
-                }
-            }
+            IRExpr::Value(val) => match val {
+                IRValue::I8(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::I16(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::I32(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::I64(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::U8(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::U16(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::U32(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                IRValue::U64(v) => self
+                    .ctx
+                    .new_rvalue_from_int(self.convert_ir_to_gccjit_type(val.to_type()), v as i32),
+                _ => todo!(),
+            },
+            IRExpr::GetVar(var) => vars[&var].get_address(None),
             _ => todo!(),
         }
     }

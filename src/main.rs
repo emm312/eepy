@@ -48,13 +48,6 @@ fn main() {
         println!("{}", (&*tokens).pretty_print(&symbol_map));
     };
 
-    let putchar_fn = IRFunction {
-        name: String::from("putchar"),
-        return_type: IRType::ZeroSized,
-        args: vec![(String::from("c"), IRType::I8)],
-        blocks: None,
-        linkage: IRLinkage::External,
-    };
     let ast = parse(file, &tokens, &mut symbol_map)
         .unwrap_as_error(|| HashMap::from([(file, (symbol_map[file].clone(), code.clone()))]));
     if env_flag(DUMP_AST) {
