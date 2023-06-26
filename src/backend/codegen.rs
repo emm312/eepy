@@ -15,7 +15,6 @@ impl<'gcc> Codegen<'gcc> {
     fn new() -> Codegen<'gcc> {
         let ctx = Context::default();
         ctx.set_dump_code_on_compile(env_flag("TAUBE_DUMP_ASM"));
-        ctx.dump_reproducer_to_file("test.c");
         ctx.set_optimization_level(gccjit::OptimizationLevel::None);
         Codegen { ctx }
     }
