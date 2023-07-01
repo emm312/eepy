@@ -115,8 +115,11 @@ impl<'gcc> Codegen<'gcc> {
                     let bb = func.new_block(block.name.clone());
                     blocks_map.insert(block.name.clone(), bb);
                 }
-                for block in blocks {
+                for (pos, block) in blocks.into_iter().enumerate() {
                     let bb = blocks_map[&block.name];
+                    if pos == 0 {
+                        preentry.end_with_jump(None, bb);
+                    }
                     for instr in block.instrs {
                         match instr {
                             IRInstr::Expr(e) => {
@@ -149,6 +152,7 @@ impl<'gcc> Codegen<'gcc> {
                     }
                 }
             }
+            
         }
     }
 
