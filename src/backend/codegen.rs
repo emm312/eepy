@@ -47,7 +47,7 @@ impl<'gcc> Codegen<'gcc> {
             let func = codegen.ctx.new_function(
                 None,
                 gccjit::FunctionType::Extern,
-                codegen.ctx.new_type::<i8>(),
+                codegen.convert_ir_to_gccjit_type(ir_func.return_type.clone()),
                 &args,
                 &ir_func.name,
                 false,
