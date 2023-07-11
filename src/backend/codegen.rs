@@ -90,7 +90,7 @@ impl<'gcc> Codegen<'gcc> {
             let func = self.ctx.new_function(
                 None,
                 gccjit::FunctionType::Exported,
-                codegen.convert_ir_to_gccjit_type(ir_func.return_type.clone()),
+                self.convert_ir_to_gccjit_type(ir_func.return_type.clone()),
                 &args,
                 &ir_func.name,
                 false,
