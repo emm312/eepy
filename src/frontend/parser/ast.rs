@@ -159,7 +159,19 @@ pub enum Expression {
 
 
     Identifier {
-        ident: SymbolIndex,
+        ident: PathSymbol,
+    },
+
+
+    FunctionCall {
+        path: NodeIndex,
+        arguments: Vec<NodeIndex>,
+    },
+
+
+    StructureCreation {
+        path: PathSymbol,
+        fields: Vec<(SymbolIndex, NodeIndex)>,
     }
 }
 
@@ -284,6 +296,11 @@ impl Block {
         assert!(!vec.is_empty());
         Self(vec)
     }
+
+
+    pub fn source_range(&self, node_map: &NodeMap) -> SourceRange {
+        SourceRange::with(node_map.get(*self.0.first().unwrap()).unwrap().source_range, node_map.get(*self.0.last().unwrap()).unwrap().source_range)
+    }
 }
 
 
@@ -314,8 +331,19 @@ pub struct DataTypeNode {
 #[derive(Debug, PartialEq)]
 pub enum DataType {
     U8,
+    U16,
+    U32,
+    U64,
     I8,
+    I16,
+    I32,
+    I64,
+    Bool,
+
     Empty,
+
+    ConstPointer(Box<DataTypeNode>),
+    MutPointer(Box<DataTypeNode>),
 
     Custom(PathSymbol)
 }
@@ -323,6 +351,7 @@ pub enum DataType {
 
 #[derive(Debug, PartialEq)]
 pub struct DataTypeConditionNode {
+    pub source_range: SourceRange,
     pub binding_name: SymbolIndex,
     pub condition: NodeIndex,
 }
@@ -331,10 +360,10 @@ pub struct DataTypeConditionNode {
 #[derive(Debug, PartialEq)]
 pub struct PathSymbol {
     pub source_range: SourceRange,
-    pub value: SymbolIndex,
+    pub value: Vec<SymbolIndex>,
 }
 
 
 impl PathSymbol {
-    pub fn new(source_range: SourceRange, value: SymbolIndex) -> Self { Self { value, source_range } }
+    pub fn new(source_range: SourceRange, value: Vec<SymbolIndex>) -> Self { Self { value, source_range } }
 }

@@ -50,6 +50,7 @@ impl Parser<'_> {
         let start = self.current_range();
         
         let mut last_semicolon = None;
+        let mut is_in_panic = false;
 
         
         loop {
@@ -60,25 +61,49 @@ impl Parser<'_> {
                 last_semicolon = None;
             }
 
+            if matches!(self.current_kind(), TokenKind::Keyword(_)) {
+                is_in_panic = false;
+            }
+            
             let statement = self.statement();
+
+            match statement {
+                Ok(v)  => nodes.push(v),
+                Err(v) if !is_in_panic => {
+                    errors.push(v);
+                    is_in_panic = true;
+                },
+                _ => (),
+            }
+
+
+            if self.expect(TokenKind::RightBracket).is_ok() {
+                self.advance();
+                continue
+            }
+
+
             if self.current_kind() != TokenKind::Semicolon {
                 self.advance();
             }
 
-            match statement {
-                Ok(v)  => nodes.push(v),
-                Err(v) => errors.push(v),
+
+            if !is_in_panic {
+                if let Err(e) = self.expect(TokenKind::Semicolon) {
+                    last_semicolon = Some(e);
+                    continue
+                }
+
             }
 
-            if let Err(e) = self.expect(TokenKind::Semicolon) {
-                last_semicolon = Some(e);
-                continue
-            }
 
+            
             self.advance();
+
 
         }
 
+        assert!(!(is_in_panic && errors.is_empty()));
 
         if let Err(e) = self.expect(token) {
             errors.push(e);
@@ -99,12 +124,48 @@ impl Parser<'_> {
 
     fn parse_type(&mut self) -> Result<DataTypeNode, Error> {
         let start = self.current_range();
+        if self.expect(TokenKind::Star).is_ok() {
+            self.advance();
+
+            let is_mut = self.expect(TokenKind::Keyword(Keyword::Mut)).is_ok();
+
+            if !is_mut && self.expect(TokenKind::Keyword(Keyword::Const)).is_err() {                
+                return Err(CompilerError::new(self.file, "invalid raw pointer type")
+                    .highlight(SourceRange::new(start.start, self.current_range().end))
+                        .note(format!(
+                            "a pointer can be either 'const' or 'mut', {} is not a valid pointer type", 
+                            self.current_kind().to_str(self.symbol_map)))
+                    .build())
+            }
+
+
+            self.advance();
+            let datatype = self.parse_type()?;
+
+            if let Some(cond) = datatype.condition {
+                return Err(CompilerError::new(self.file, "pointer types can't have condition")
+                    .highlight(cond.source_range)
+                    .build())
+            }
+
+
+            return Ok(DataTypeNode {
+                source_range: SourceRange::new(start.start, self.current_range().end), 
+                data_type: if is_mut { DataType::MutPointer(Box::new(datatype)) }
+                            else { DataType::ConstPointer(Box::new(datatype)) },
+                condition: None,
+            })
+            
+        }
+
+        
         let type_path = self.parse_path()?;
         
         let condition = if self.peek_kind() == Some(TokenKind::SquigglyDash) {
             self.advance();
             self.advance();
-            
+
+            let start = self.current_range();
             self.expect(TokenKind::LeftSquare)?;
             self.advance();
 
@@ -122,17 +183,27 @@ impl Parser<'_> {
             Some(DataTypeConditionNode {
                 binding_name,
                 condition,
+                source_range: SourceRange::new(start.start, self.current_range().end),
             })
         } else {
             None
         };
 
 
-        let data_type = match self.symbol_map.get(type_path.value).map(|x| x.as_str()) {
-            Some("u8") => DataType::U8,
-            Some("i8") => DataType::I8,
-            _ => DataType::Custom(type_path),
-        };
+        let data_type = if type_path.value.len() == 1 {
+            match self.symbol_map.get(type_path.value[0]).map(|x| x.as_str()) {
+                Some("u8") => DataType::U8,
+                Some("u16") => DataType::U16,
+                Some("u32") => DataType::U32,
+                Some("u64") => DataType::U64,
+                Some("i8") => DataType::I8,
+                Some("i16") => DataType::I16,
+                Some("i32") => DataType::I32,
+                Some("i64") => DataType::I64,
+                Some("bool") => DataType::Bool,
+                _ => DataType::Custom(type_path),
+            }
+        } else { DataType::Custom(type_path) };
         
 
         Ok(DataTypeNode {
@@ -145,9 +216,18 @@ impl Parser<'_> {
 
     fn parse_path(&mut self) -> Result<PathSymbol, Error> {
         let start = self.current_range();
-        let ident = self.expect_identifier()?;
+        let mut path_list = Vec::with_capacity(8);
+        path_list.push(self.expect_identifier()?);
 
-        Ok(PathSymbol::new(start.with(self.current_range()), ident))
+        while self.peek_kind() == Some(TokenKind::DoubleColon) {
+            self.advance();
+            self.advance();
+            
+            let ident = self.expect_identifier()?;
+            path_list.push(ident);
+        }
+        
+        Ok(PathSymbol::new(start.with(self.current_range()), path_list))
     }
 
 
@@ -156,6 +236,22 @@ impl Parser<'_> {
         self.advance();
 
         self.parse_till(TokenKind::RightBracket)
+    }
+
+
+    fn left_value(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        let expression = self.expression()?;
+
+        match self.node_map.get(expression).unwrap().node_type {
+            NodeType::Expression(Expression::Identifier { .. }) => Ok(expression),
+
+            _ => Err(CompilerError::new(self.file, "value is not an left-side value")
+                    .highlight(SourceRange::new(start.start, self.current_range().end))
+                        .note("is not one of the following: identifier".to_string())
+                    .build()
+                )
+        }
     }
 
 
@@ -275,7 +371,7 @@ impl Parser<'_> {
             _ => self.expression()
         }
     }
-
+    
 
     fn while_statement(&mut self) -> Result<NodeIndex, Error> {
         let start = self.current_range();
@@ -372,7 +468,7 @@ impl Parser<'_> {
             Some(type_hint)
             
         } else { None };
-
+        
         self.expect(TokenKind::Equals)?;
         self.advance();
 
@@ -407,6 +503,7 @@ impl Parser<'_> {
 
             if !arguments.is_empty() {
                 self.expect(TokenKind::Comma)?;
+                self.advance();
             }
 
             
@@ -472,6 +569,7 @@ impl Parser<'_> {
 
             if !fields.is_empty() {
                 self.expect(TokenKind::Comma)?;
+                self.advance();
             }
 
 
@@ -487,13 +585,13 @@ impl Parser<'_> {
             self.advance();
 
             let field_type = self.parse_type()?;
+            self.advance();
 
             
             fields.push((ident, field_type));
         }
 
         self.expect(TokenKind::RightBracket)?;
-        self.advance();
 
         Ok(self.new_declaration(start, Declaration::StructureDeclaration { ident, fields }))
     }
@@ -548,6 +646,7 @@ impl Parser<'_> {
 
             if !arguments.is_empty() {
                 self.expect(TokenKind::Comma)?;
+                self.advance();
             }
 
             
@@ -652,12 +751,61 @@ impl Parser<'_> {
 
         Ok(self.new_declaration(start, Declaration::UsingDeclaration { path }))
     }
+
+
 }
 
 
 impl Parser<'_> {
     fn expression(&mut self) -> Result<NodeIndex, Error> {
-        self.logical_or()
+        macro_rules! def_binary_assign {
+            ($start: expr, $left: expr, $token: expr, $operator: expr) => {
+                if self.current_kind() == $token {
+                    let token_pos = self.current_range();
+                    self.advance();
+
+                    let right = self.expression()?;
+
+                    return Ok(self.new_expression($start, Expression::BinaryOperation { operator: BinaryOperator::from_token(&Token { source_range: token_pos, token_kind: $operator }), left: $left, right }))
+                }
+            };
+        }
+
+        
+        let start = self.current_range();
+        let left_val = self.logical_or()?;
+
+        const ASSIGN_TOKENS : [TokenKind; 10] = [
+            TokenKind::AddEquals,
+            TokenKind::SubEquals,
+            TokenKind::MulEquals,
+            TokenKind::DivEquals,
+            TokenKind::ModEquals,
+            TokenKind::BitOrAssign,
+            TokenKind::BitAndAssign,
+            TokenKind::BitXORAssign,
+            TokenKind::LeftShiftAssign,
+            TokenKind::RightShiftAssign,
+        ];
+
+        if self.peek_kind().map(|x| ASSIGN_TOKENS.contains(&x)).unwrap_or(false) {
+            self.advance();
+            def_binary_assign!(start, left_val, TokenKind::AddEquals, TokenKind::Plus);
+            def_binary_assign!(start, left_val, TokenKind::SubEquals, TokenKind::Minus);
+            def_binary_assign!(start, left_val, TokenKind::MulEquals, TokenKind::Star);
+            def_binary_assign!(start, left_val, TokenKind::DivEquals, TokenKind::Slash);
+            def_binary_assign!(start, left_val, TokenKind::ModEquals, TokenKind::Percent);
+            def_binary_assign!(start, left_val, TokenKind::BitOrAssign, TokenKind::BitwiseOR);
+            def_binary_assign!(start, left_val, TokenKind::BitAndAssign, TokenKind::BitwiseAND);
+            def_binary_assign!(start, left_val, TokenKind::BitXORAssign, TokenKind::BitwiseXOR);
+            def_binary_assign!(start, left_val, TokenKind::LeftShiftAssign, TokenKind::LeftShift);
+            def_binary_assign!(start, left_val, TokenKind::RightShiftAssign, TokenKind::RightShift);
+
+            unreachable!()
+
+        } else {
+            Ok(left_val)
+        }
     }
 
 
@@ -762,10 +910,53 @@ impl Parser<'_> {
 
     fn product_expression(&mut self) -> Result<NodeIndex, Error> {
         self.binary_operation(
-            Parser::atom, 
-            Parser::atom,
+            Parser::function_call, 
+            Parser::function_call,
             &[TokenKind::Star, TokenKind::Slash, TokenKind::Percent]
         )
+    }
+
+
+    fn function_call(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        let mut atom = self.atom()?;
+        
+
+        while self.peek_kind() == Some(TokenKind::LeftParenthesis) {
+            self.advance();
+            self.advance();
+
+            let mut arguments: Vec<NodeIndex> = vec![];
+            loop {
+                if self.expect(TokenKind::RightParenthesis).is_ok() {
+                    break;
+                }
+
+
+                if !arguments.is_empty() {
+                    self.expect(TokenKind::Comma)?;
+                    self.advance();
+                }
+
+        
+                if self.expect(TokenKind::RightParenthesis).is_ok() {
+                    break;
+                }
+
+        
+                let expr = self.expression()?;
+                self.advance();
+
+                arguments.push(expr);
+            }
+
+            self.expect(TokenKind::RightParenthesis)?;
+
+            atom = self.new_expression(start, Expression::FunctionCall { path: atom, arguments })
+            
+        }
+
+        Ok(atom)
     }
     
 
@@ -799,7 +990,8 @@ impl Parser<'_> {
             TokenKind::Keyword(Keyword::Unsafe) => self.unsafe_expression(),
 
 
-            TokenKind::Identifier(_) => self.variable_access(),
+            TokenKind::Identifier(_) if self.peek_kind() == Some(TokenKind::LeftBracket) => self.structure_creation(),
+            TokenKind::Identifier(_) => self.identifier_access(),
 
 
             TokenKind::Semicolon => {
@@ -825,8 +1017,15 @@ impl Parser<'_> {
 
         let else_block = if self.peek_kind() == Some(TokenKind::Keyword(Keyword::Else)) {
             self.advance();
+            if self.peek_kind() == Some(TokenKind::Keyword(Keyword::If)) {
+                self.advance();
+                Some(self.if_expression()?)
+            } else {
+                self.advance();
+                let block = self.parse_block()?;
+                Some(self.new_expression(block.source_range(&self.node_map), Expression::Block { block }))
+            }
 
-            Some(self.if_expression()?)
         } else { None };
 
 
@@ -869,10 +1068,55 @@ impl Parser<'_> {
     }
 
 
-    fn variable_access(&mut self) -> Result<NodeIndex, Error> {
-        let ident = self.expect_identifier()?;
+    fn identifier_access(&mut self) -> Result<NodeIndex, Error> {
+        let ident = self.parse_path()?;
 
         Ok(self.new_expression(self.current_range(), Expression::Identifier { ident }))
+    }
+
+
+    fn structure_creation(&mut self) -> Result<NodeIndex, Error> {
+        let start = self.current_range();
+        let path = self.parse_path()?;
+        self.advance();
+
+        self.expect(TokenKind::LeftBracket)?;
+        self.advance();
+
+        
+        let mut fields: Vec<(SymbolIndex, NodeIndex)> = vec![];
+        loop {
+            if self.expect(TokenKind::RightBracket).is_ok() {
+                break;
+            }
+
+
+            if !fields.is_empty() {
+                self.expect(TokenKind::Comma)?;
+                self.advance();
+            }
+
+    
+            if self.expect(TokenKind::RightBracket).is_ok() {
+                break;
+            }
+
+    
+            let name = self.expect_identifier()?;
+            self.advance();
+
+            self.expect(TokenKind::Colon)?;
+            self.advance();
+            
+            let expr = self.expression()?;
+            self.advance();
+
+            fields.push((name, expr));
+        }
+
+        self.expect(TokenKind::RightBracket)?;
+
+        Ok(self.new_expression(start, Expression::StructureCreation { path, fields }))
     }
 }
 

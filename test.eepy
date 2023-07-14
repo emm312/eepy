@@ -1,1 +1,76 @@
-let x : u8 ~ [n: n || true] = 3;
+using red::dead::redemption;
+
+
+extern "C" fn hey(val: *const i32, other_val: *const *mut bool): i32;
+
+
+namespace ext {
+	extern "C" fn system_time(): usize;
+}
+
+
+fn add(i: i32, j: i32): i32 {
+	// implicit return
+	i + j
+}
+
+
+struct Hello {
+	id: i32 ~ [n: n],
+	key: u8 ~ [n: n * n == n]
+}
+
+
+const MULTIPLIER = 3;
+static VALUE = MULTIPLIER * ext::system_time();
+static mut VALUE_PER_ITER = MULTIPLIER * ext::system_time();
+
+
+fn main(): u8 {
+	let mut x = 0;
+	while x < 50 {
+		x += 1;
+		x -= 1;
+		x *= 1;
+		x /= 1;
+		x %= 1;
+		x <<= 1;
+		x >>= 1;
+		x |= 1;
+		x &= 1;
+		x ^= 1;
+
+		unsafe {
+			VALUE_PER_ITER += x;
+		}
+	}
+
+
+	let id = loop {
+		break 5
+	};
+
+	while 0 == 1 {
+		continue
+	}
+
+
+	let id = if x == 0 && x != 1 {
+		add(1, 5)
+	} else if x >= 0 && x <= 0 && x < 0 && x > 0 {
+		add(69, 3)
+	} else {
+		9 * MULTIPLIER
+	}
+
+
+	let hello = Hello {
+		id: 0,
+		key: key
+	};
+
+	
+
+	let x = x;
+	return x
+}

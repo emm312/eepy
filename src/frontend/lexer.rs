@@ -13,55 +13,112 @@ pub struct Token {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenKind {
+    /// '('
     LeftParenthesis,
+    /// ')'
     RightParenthesis,
 
+    /// '<'
     LeftAngle,
+    /// '>'
     RightAngle,
 
+    /// '{'
     LeftBracket,
+    /// '}'
     RightBracket,
 
+    /// '['
     LeftSquare,
+    /// ']'
     RightSquare,
 
+    /// '%'
     Percent,
+    /// '/'
     Slash,
+    /// '+'
     Plus,
+    /// '-'
     Minus,
+    /// '*'
     Star,
-    Caret,
+    /// ':'
     Colon,
+    /// '::'
     DoubleColon,
+    /// ','
     Comma,
+    /// '.'
     Dot,
+    /// '..'
     DoubleDot,
+    /// '!'
     Bang,
+    /// '='
     Equals,
+    /// '_'
     Underscore,
+    /// '&'
     Ampersand,
+    /// ';'
     Semicolon,
+    /// '~'
     SquigglyDash,
 
     Literal(Literal),
     Keyword(Keyword),
     Identifier(SymbolIndex),
 
+    /// '<='
     LesserEquals,
+    /// '>='
     GreaterEquals,
+    /// '=='
     EqualsTo,
+    /// '!='
     NotEqualsTo,
+    /// '||'
     LogicalOr,
+    /// '&&'
     LogicalAnd,
 
+    /// '|'
     BitwiseOR,
+    /// '&'
     BitwiseAND,
+    /// '^'
     BitwiseXOR,
 
+    /// '<<'
     LeftShift,
+    /// '>>'
     RightShift,
+    /// '>>>'
     RightShiftZero,
+
+    /// '+='
+    AddEquals,
+    /// '-='
+    SubEquals,
+    /// '*='
+    MulEquals,
+    /// '/='
+    DivEquals,
+    /// '%='
+    ModEquals,
+    /// '|='
+    BitOrAssign,
+    /// '&='
+    BitAndAssign,
+    /// '^='
+    BitXORAssign,
+    /// '<<='
+    LeftShiftAssign,
+    /// '>>='
+    RightShiftAssign,
     
+    /// 'eof'
     EndOfFile,
 }
 
@@ -185,6 +242,12 @@ pub fn lex(
                     }
                     continue;
                 }
+                
+                Some('=') => {
+                    lexer.advance();
+                    TokenKind::DivEquals
+                }
+                
                 _ => TokenKind::Slash,
             },
 
@@ -194,7 +257,7 @@ pub fn lex(
             ')' => TokenKind::RightParenthesis,
             '<' => {
                 match lexer.peek() {
-                    Some('<') => { lexer.advance(); TokenKind::LeftShift },
+                    Some('<') => { lexer.advance(); lexer.next_matches('=', TokenKind::LeftShiftAssign, TokenKind::LeftShift)},
                     Some('=') => { lexer.advance(); TokenKind::LesserEquals },
                     _ => TokenKind::LeftAngle
                 }
@@ -207,6 +270,7 @@ pub fn lex(
                         lexer.advance();
                         match lexer.peek() {
                             Some('>') => { lexer.advance(); TokenKind::RightShiftZero },
+                            Some('=') => { lexer.advance(); TokenKind::RightShiftAssign }
                             _ => TokenKind::RightShift,
                         }
                     }
@@ -214,17 +278,31 @@ pub fn lex(
                 }
             },
 
-            '&' => lexer.next_matches('&', TokenKind::LogicalAnd, TokenKind::BitwiseAND),
-            '|' => lexer.next_matches('|', TokenKind::LogicalOr, TokenKind::BitwiseOR),
+            '&' => {
+                match lexer.peek() {
+                    Some('&') => { lexer.advance(); TokenKind::LogicalAnd },
+                    Some('=') => { lexer.advance(); TokenKind::BitAndAssign },
+                    _ => TokenKind::BitwiseAND
+                }
+            },
+
+            '|' => {
+                match lexer.peek() {
+                    Some('|') => { lexer.advance(); TokenKind::LogicalOr },
+                    Some('=') => { lexer.advance(); TokenKind::BitOrAssign },
+                    _ => TokenKind::BitwiseOR
+                }
+            },
+
             '{' => TokenKind::LeftBracket,
             '}' => TokenKind::RightBracket,
             '[' => TokenKind::LeftSquare,
             ']' => TokenKind::RightSquare,
-            '%' => TokenKind::Percent,
-            '+' => TokenKind::Plus,
-            '-' => TokenKind::Minus,
-            '*' => TokenKind::Star,
-            '^' => TokenKind::Caret,
+            '%' => lexer.next_matches('=', TokenKind::ModEquals, TokenKind::Percent),
+            '+' => lexer.next_matches('=', TokenKind::AddEquals, TokenKind::Plus),
+            '-' => lexer.next_matches('=', TokenKind::SubEquals, TokenKind::Minus),
+            '*' => lexer.next_matches('=', TokenKind::MulEquals, TokenKind::Star),
+            '^' => lexer.next_matches('=', TokenKind::BitXORAssign, TokenKind::BitwiseXOR),
             ',' => TokenKind::Comma,
             '.' => lexer.next_matches('.', TokenKind::DoubleDot, TokenKind::Dot),
             ':' => lexer.next_matches(':', TokenKind::DoubleColon, TokenKind::Colon),
@@ -360,8 +438,7 @@ impl Lexer<'_> {
             "struct" => TokenKind::Keyword(Keyword::Struct),
             "namespace" => TokenKind::Keyword(Keyword::Namespace),
             "unsafe" => TokenKind::Keyword(Keyword::Unsafe),
-            // "promise" => TokenKind::Keyword(Keyword::Promise),
-            "ext" => TokenKind::Keyword(Keyword::Extern),
+            "extern" => TokenKind::Keyword(Keyword::Extern),
             "if" => TokenKind::Keyword(Keyword::If),
             "else" => TokenKind::Keyword(Keyword::Else),
             "while" => TokenKind::Keyword(Keyword::While),
@@ -703,7 +780,6 @@ impl TokenKind {
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",
-            TokenKind::Caret => "^",
             TokenKind::Colon => ":",
             TokenKind::DoubleColon => "::",
             TokenKind::Comma => ",",
@@ -729,6 +805,17 @@ impl TokenKind {
             TokenKind::LeftShift => "<<",
             TokenKind::RightShift => ">>",
             TokenKind::RightShiftZero => ">>>",
+
+            TokenKind::AddEquals => "+=",
+            TokenKind::SubEquals => "-=",
+            TokenKind::MulEquals => "*=",
+            TokenKind::DivEquals => "/=",
+            TokenKind::ModEquals => "%=",
+            TokenKind::BitOrAssign => "|=",
+            TokenKind::BitAndAssign => "&=",
+            TokenKind::BitXORAssign => "^=",
+            TokenKind::LeftShiftAssign => "<<=",
+            TokenKind::RightShiftAssign => ">>=",
             
             TokenKind::Literal(v) => return v.pretty_print(handle, symbol_map),
             TokenKind::Keyword(v) => return v.pretty_print(handle),
